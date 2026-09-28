@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Backend runtime
+backend/data/
+runtime/
+data/
+*.db
+*.sqlite3
+*.log
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/dist-embed/
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+frontend/vite.lib.config.js
+frontend/vite.lib.config.d.ts
+
+# Build and release artifacts
+build/
+release/
+*.exe
+*.zip
+
+# Original survey data and internal reference material
+社区数据/
+测试用数据/
+附件/
+汇报-0919/
+
+# Office temporary files
+~$*
+
+# Environment and IDE
+.env
+.env.local
+.DS_Store
+.idea/
+.vscode/

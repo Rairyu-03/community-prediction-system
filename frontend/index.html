@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/src/assets/community-mark.svg" />
+    <meta name="theme-color" content="#07111f" />
+    <title>完整社区设施需求预测与动态匹配系统</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      window.__communityStartupErrors = [];
+      window.addEventListener("error", function (event) {
+        window.__communityStartupErrors.push(event.message || "脚本执行错误");
+      });
+      window.addEventListener("unhandledrejection", function (event) {
+        window.__communityStartupErrors.push(String(event.reason || "前端初始化失败"));
+      });
+      window.__communityStartupTimer = window.setTimeout(function () {
+        var root = document.getElementById("root");
+        if (!root || root.childElementCount) return;
+        document.body.style.margin = "0";
+        document.body.style.background = "#f3f8fb";
+        document.body.style.color = "#12344d";
+        var details = window.__communityStartupErrors.length ? '<p style="padding:10px;background:#fff4f4;color:#a33;border-radius:8px;font-size:13px">浏览器错误：'+window.__communityStartupErrors.join('；').replace(/</g,'&lt;')+'</p>' : '';
+        root.innerHTML = '<main style="max-width:720px;margin:12vh auto;padding:32px;font-family:system-ui;border:1px solid #cfe0e8;border-radius:16px;background:#fff;box-shadow:0 16px 45px rgba(25,80,105,.12)"><h1 style="margin-top:0">界面资源未能加载</h1><p>服务已经启动，但浏览器没有执行前端程序。通常是旧页面缓存或安全软件拦截造成的。</p>'+details+'<button style="padding:10px 18px;border:0;border-radius:8px;color:#fff;background:#078f97;cursor:pointer" onclick="location.replace(location.pathname+\'?refresh=\'+Date.now())">强制刷新界面</button> <a style="margin-left:14px;color:#087e90" href="/api/health" target="_blank">查看服务状态</a><p style="color:#687f8d;font-size:13px">请确认使用启动日志中显示的最新构建标识；若刷新后仍未恢复，请发送 %LOCALAPPDATA%\\CommunityPredictionSystem\\logs 中最新日志。</p></main>';
+      }, 8000);
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

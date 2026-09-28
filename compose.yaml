@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: community-prediction-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: community_prediction
+      POSTGRES_USER: community
+      POSTGRES_PASSWORD: change_me_before_production
+    ports:
+      - "5432:5432"
+    volumes:
+      - community_prediction_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U community -d community_prediction"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  community_prediction_pgdata:
+
