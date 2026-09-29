@@ -488,11 +488,11 @@ location /community-api/ {
         ["2 获取源码", "git clone 仓库，或下载 ZIP 后完整解压", "根目录中可见 backend、frontend、scripts 和一键启动.bat"],
         ["3 一键启动", "双击根目录的一键启动.bat", "脚本自动创建 .venv、安装依赖、启动服务并打开浏览器"],
         ["4 访问系统", "浏览器打开 http://127.0.0.1:5173", "前端页面和 http://127.0.0.1:8000/api/health 均可访问"],
-        ["5 停止服务", "双击根目录的停止服务.bat", "5173 与 8000 端口释放"],
+        ["5 停止服务", "关闭一键启动脚本窗口", "前端与后端进程自动结束，5173 与 8000 端口释放"],
     ], [2.4, 8.0, 6.4])
     add_bullet(doc, "首次启动需要联网下载 Python 和前端依赖，后续启动仍会校验依赖以适配代码更新。")
     add_bullet(doc, "不要从压缩包预览窗口直接运行，也不要把 .venv、node_modules 或运行数据库提交到 GitHub。")
-    add_bullet(doc, "若提示端口占用，先运行停止服务.bat，再关闭占用 5173 或 8000 端口的其他程序。")
+    add_bullet(doc, "使用系统期间需保持启动窗口开启；若提示端口占用，请关闭已有启动窗口和占用 5173 或 8000 端口的其他程序后重试。")
 
     footer = section.footer.paragraphs[0]
     footer.alignment = WD_ALIGN_PARAGRAPH.CENTER

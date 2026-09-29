@@ -1,3 +1,7 @@
+param(
+    [switch]$NoReload
+)
+
 $ErrorActionPreference = "Stop"
 
 $workspaceRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -32,8 +36,13 @@ if (-not (Test-Path -LiteralPath $viteEntry)) {
 $nodeCommand = Get-Command node.exe -ErrorAction Stop
 New-Item -ItemType Directory -Force -Path (Split-Path $pidFile) | Out-Null
 
+$backendArguments = @("-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000")
+if (-not $NoReload) {
+    $backendArguments += @("--reload", "--reload-dir", $backendRoot)
+}
+
 $backendProcess = Start-Process -FilePath $pythonPath `
-    -ArgumentList "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000", "--reload", "--reload-dir", $backendRoot `
+    -ArgumentList $backendArguments `
     -WorkingDirectory $backendRoot -WindowStyle Hidden -PassThru
 
 $frontendProcess = Start-Process -FilePath $nodeCommand.Source `
