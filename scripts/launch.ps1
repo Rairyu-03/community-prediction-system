@@ -16,23 +16,27 @@ try {
     if (-not (Test-Path -LiteralPath $pythonPath)) {
         Write-Host "[1/4] Creating the Python virtual environment..."
         $systemPython = Get-Command python.exe -ErrorAction SilentlyContinue
+        $pythonArguments = @()
+        if (-not $systemPython) {
+            $systemPython = Get-Command py.exe -ErrorAction SilentlyContinue
+            $pythonArguments = @("-3")
+        }
         if (-not $systemPython) {
             throw "Python was not found. Install Python 3.11 or later and add it to PATH."
         }
-        & $systemPython.Source -m venv (Join-Path $workspaceRoot ".venv")
+        & $systemPython.Source @pythonArguments -m venv (Join-Path $workspaceRoot ".venv")
         if ($LASTEXITCODE -ne 0) {
             throw "Failed to create the Python virtual environment."
-        }
-
-        Write-Host "[2/4] Installing Python dependencies..."
-        & $pythonPath -m pip install -r $requirementsPath
-        if ($LASTEXITCODE -ne 0) {
-            throw "Failed to install Python dependencies."
         }
     }
     else {
         Write-Host "[1/4] Python environment is ready."
-        Write-Host "[2/4] Python dependencies are installed."
+    }
+
+    Write-Host "[2/4] Verifying Python dependencies..."
+    & $pythonPath -m pip install --disable-pip-version-check -r $requirementsPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to install Python dependencies. Check the network or pip configuration."
     }
 
     $pnpmCommand = Get-Command pnpm.cmd -ErrorAction SilentlyContinue
@@ -42,13 +46,10 @@ try {
             throw "Node.js/Corepack was not found. Install Node.js 20 or later."
         }
         Write-Host "[3/4] Enabling pnpm..."
-        & $corepackCommand.Source enable
-        if ($LASTEXITCODE -ne 0) {
-            throw "Failed to enable pnpm. Try: npm install -g pnpm"
-        }
+        & $corepackCommand.Source enable | Out-Null
         $pnpmCommand = Get-Command pnpm.cmd -ErrorAction SilentlyContinue
         if (-not $pnpmCommand) {
-            throw "pnpm is unavailable. Try: npm install -g pnpm"
+            throw "pnpm is unavailable. Open a terminal as administrator and run: corepack enable"
         }
     }
 
@@ -83,7 +84,7 @@ try {
         }
     }
     if (-not $ready) {
-        throw "The page was not ready in 30 seconds. Check whether ports 5173 and 8000 are occupied."
+        throw "The page was not ready in 30 seconds. Check whether ports 5173 and 8000 are occupied, then run scripts\stop-dev.ps1 and retry."
     }
 
     if ($env:COMMUNITY_NO_BROWSER -ne "1") {

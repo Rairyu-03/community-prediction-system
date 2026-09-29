@@ -18,7 +18,7 @@ async function versionAsset(sourcePath, extension) {
 }
 
 // The desktop service uses a stable localhost address. Content-addressed names
-// prevent a browser from reusing JavaScript/CSS from an older EXE release.
+// Prevent a browser from reusing JavaScript/CSS from an older deployment.
 const scriptName = await versionAsset(sourceScript, "js");
 const styleName = await versionAsset(sourceStyle, "css");
 

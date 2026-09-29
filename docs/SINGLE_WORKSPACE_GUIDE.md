@@ -2,34 +2,28 @@
 
 ## 入口地址
 
-打包程序启动后，默认地址已经直接进入精简单界面：
+开发环境启动后访问：
 
 ```text
-http://127.0.0.1:8765
+http://127.0.0.1:5173/
 ```
 
-以下兼容地址具有相同效果：
+生产环境应由网关或反向代理提供 HTTPS 地址，例如：
 
 ```text
-http://127.0.0.1:8765/workspace
+https://your-domain.example/community-prediction/
 ```
 
-指定工程：
+指定工程时可附加 `projectId`：
 
 ```text
-http://127.0.0.1:8765/workspace?projectId=9
-```
-
-开发环境也可使用：
-
-```text
-http://127.0.0.1:5173/?workspace=1
+https://your-domain.example/community-prediction/?projectId=9
 ```
 
 ## 上级系统按钮
 
 ```html
-<button type="button" onclick="window.location.href='http://127.0.0.1:8765/workspace'">
+<button type="button" onclick="window.location.href='/community-prediction/'">
   社区设施预测
 </button>
 ```
@@ -37,7 +31,7 @@ http://127.0.0.1:5173/?workspace=1
 新窗口打开：
 
 ```html
-<button type="button" onclick="window.open('http://127.0.0.1:8765/workspace', '_blank')">
+<button type="button" onclick="window.open('/community-prediction/', '_blank')">
   社区设施预测
 </button>
 ```
@@ -46,7 +40,7 @@ http://127.0.0.1:5173/?workspace=1
 
 ```html
 <iframe
-  src="http://127.0.0.1:8765/workspace"
+  src="/community-prediction/"
   title="社区设施需求预测"
   style="width:100%;height:100%;min-height:900px;border:0"
 ></iframe>
@@ -54,7 +48,7 @@ http://127.0.0.1:5173/?workspace=1
 
 ## 功能范围
 
-单界面工作台仅改变布局，不改变业务功能和数据：
+单界面工作台包含以下功能：
 
 1. 社区数据：录入、导入、下载社区现状数据。
 2. 人口预测：配置人口参数并预测。
@@ -62,8 +56,6 @@ http://127.0.0.1:5173/?workspace=1
 4. 结果报告：查看图表、结果、历史记录并下载报告。
 5. 社区管理：查询、查看和维护社区完整信息。
 6. 工程管理：新建、切换、备份和恢复工程。
-
-它与原系统共用后端接口和 SQLite 数据库。原系统默认入口已采用此布局，不再显示初始工程选择页。
 
 ## 可选参数
 
@@ -74,4 +66,4 @@ http://127.0.0.1:5173/?workspace=1
 | `token` | 传入接口访问凭证 |
 | `hostOrigin` | 限制宿主页面消息来源 |
 
-生产环境建议使用同域反向代理或短期凭证，避免在公开链接中保存长期有效凭证。
+生产环境建议把前端与 `/api` 配置为同域 HTTPS 服务。跨域部署时，应同时配置后端 `CORS_ORIGINS`、访问令牌和严格的 `postMessage` 来源校验。不要把 `127.0.0.1` 地址提供给其他设备使用。

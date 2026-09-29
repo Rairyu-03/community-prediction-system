@@ -733,3 +733,76 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .calculation-panel table td { white-space:normal; overflow-wrap:anywhere; text-align:left; line-height:1.7; min-width:100px; }
 .calculation-panel select { margin-left:12px; }
 .result-selectors select,.community-export-bar select,.calculation-panel select { padding:9px 12px; border:1px solid var(--line); border-radius:8px; background:var(--panel); color:inherit; min-height:38px; }
+
+/* Readability scale: keep the compact dashboard layout while removing micro text. */
+body { font-size: 15px; line-height: 1.55; }
+button, input, textarea, select { font-size: 14px; }
+.run-actions button, .primary-button, .secondary-button { min-height: 40px; }
+.brand strong { font-size: 16px; }
+.brand span { font-size: 11px; }
+.project-context > span, .project-context small { font-size: 13px; }
+.project-manage-button { font-size: 13px; }
+.entry-card > p, .entry-preparation > p, .preparation-grid p,
+.create-project-dialog > p:not(.eyebrow), .demo-notice p { font-size: 14px; }
+.recent-projects h2 { font-size: 16px; }
+.recent-projects button span, .create-project-dialog label { font-size: 13px; }
+.sidebar-title { font-size: 12px; }
+.sidebar button { font-size: 14px; }
+.sidebar-foot { font-size: 13px; }
+.icon { font-size: 13px; }
+.page-title h1 { font-size: 27px; }
+.section-header h2 { font-size: 21px; }
+.eyebrow { font-size: 11px; }
+.section-header p:not(.eyebrow), .project-create-card p:not(.eyebrow),
+.prediction-run-copy > p:last-child, .report-generation-note { font-size: 14px; line-height: 1.65; }
+.metric-grid span, .metric-grid small, .region-row, .warning-banner,
+.source-line, .inline-error { font-size: 13px; }
+.base-parameter-grid label, .year-selector, .community-form label,
+.community-form-heading > strong, .combination-charts > .section-header > label,
+.result-chart-toolbar label, .facility-chart-filter label,
+.result-selectors label, .chart-scale-toolbar label,
+.report-generation-controls label, .community-export-bar span { font-size: 13px; }
+.base-parameter-grid input, .base-parameter-grid textarea, .parameter-table input,
+.year-selector select, .search-input, .community-form input,
+.community-editor input:not([type=checkbox]), .community-editor select,
+.result-chart-toolbar select, .facility-chart-filter select,
+.result-selectors select, .community-export-bar select, .calculation-panel select {
+  font-size: 14px;
+  min-height: 40px;
+}
+.parameter-table th, .parameter-table td { font-size: 13px; line-height: 1.55; }
+.subsection-heading h3, .community-form h3 { font-size: 17px; }
+.subsection-heading p, .community-form p, .community-form-warning,
+.input-guide, .community-main span, .community-state,
+.project-meta, .run-context, .quality-panel > span { font-size: 13px; }
+.community-form label em { font-size: 11px; }
+.import-summary span, .import-summary small, .import-issues-head,
+.prediction-readiness > span, .runs-head { font-size: 12px; }
+.import-issues-row, .runs-row, .project-card-actions button { font-size: 13px; }
+.current-badge { font-size: 12px; }
+.chart-run-header label, .chart-toolbar label,
+.chart-kpis span, .chart-kpis small { font-size: 12px; }
+.chart-toolbar h3 { font-size: 19px; }
+.chart-toolbar p:not(.eyebrow) { font-size: 13px; }
+.chart-axis-label, .chart-unit { font-size: 13px; }
+.chart-year-label { font-size: 14px; }
+.chart-tooltip-title { font-size: 12px; }
+.chart-tooltip-value { font-size: 14px; }
+.chart-legend, .chart-legend button { font-size: 14px; }
+.chart-legend button { min-height: 40px; padding: 9px 13px; }
+.facility-result-header > span, .facility-unit-heading > span { font-size: 13px; }
+.facility-unit-heading h4 { font-size: 17px; }
+.service-error p, .toast, .calculation-panel pre,
+.chart-scale-toolbar span { font-size: 14px; }
+.report-generation-heading h2 { font-size: 20px; }
+.report-generation-heading > span { font-size: 12px; }
+.workspace-nav strong { font-size: 15px; }
+.workspace-nav em { font-size: 11px; }
+
+@media (max-width: 720px) {
+  body { font-size: 14px; }
+  .page-title h1 { font-size: 24px; }
+  .section-header h2 { font-size: 19px; }
+  .workspace-nav strong { font-size: 14px; }
+  .parameter-table th, .parameter-table td { font-size: 12px; }
+}

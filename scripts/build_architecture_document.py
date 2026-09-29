@@ -37,7 +37,7 @@ class Diagram:
         path=WORK/(self.name+'.png');self.im.save(path,dpi=(300,300));return path
 
 g=Diagram('整体架构图',1120)
-g.box(50,20,810,140,'独立使用',['Windows 免环境程序  /  浏览器访问'])
+g.box(50,20,810,140,'独立使用',['浏览器工作台  /  源码部署'])
 g.box(940,20,810,140,'嵌入大系统',['React 组件  /  iframe  /  宿主事件'])
 g.arrow([(450,160),(450,205)]);g.arrow([(1350,160),(1350,205)])
 g.box(50,205,1700,195,'表现层   React 18 + TypeScript + Vite',[
@@ -58,11 +58,11 @@ architecture=g.save()
 
 g=Diagram('部署架构图',610)
 g.box(35,30,550,170,'开发环境',['浏览器 → Vite  5173','HTTP API → FastAPI  8000'])
-g.box(625,30,550,170,'Windows 交付',['浏览器 → 本机 8765','EXE 内置前端及 Python 服务'])
+g.box(625,30,550,170,'生产部署',['静态页面 → 反向代理','FastAPI 服务 → 持久化目录'])
 g.box(1215,30,550,170,'大系统集成',['宿主加载组件或 iframe','调用同一套后端 API'])
 g.arrow([(900,200),(900,285)])
-g.box(220,285,1360,170,'用户数据独立存放',['%LOCALAPPDATA% / CommunityPredictionSystem','SQLite 数据库 + projects 工程目录 + trash 回收备份'])
-g.text(900,535,'源码开发、桌面交付和嵌入集成复用同一业务服务',31,True)
+g.box(220,285,1360,170,'业务数据持久化',['DATABASE_URL + PROJECTS_ROOT','SQLite 数据库 + projects 工程目录 + trash 回收备份'])
+g.text(900,535,'源码开发、生产部署和嵌入集成复用同一业务服务',31,True)
 deploy=g.save()
 
 g=Diagram('业务流程图',790)
@@ -112,7 +112,7 @@ g.box(35,335,540,190,'导出工程 ZIP',['清单 + 结构化数据','input / out
 g.box(630,335,540,190,'导入时重新映射',['重建工程、社区和批次 ID','恢复日期与目标文件路径'])
 g.box(1225,335,540,190,'恢复为可访问副本',['历史结果继续查看','成果文件继续下载'])
 g.arrow([(575,435),(630,435)]);g.arrow([(1170,435),(1225,435)])
-g.text(900,272,'跨设备恢复使用备份包，单独复制 EXE 不会带走业务数据',28,True)
+g.text(900,272,'跨设备恢复使用备份包，源码与业务数据应分别管理',28,True)
 artifacts=g.save()
 
 doc=Document();sec=doc.sections[0]
@@ -186,7 +186,7 @@ fig(architecture,'图 1  系统整体分层架构')
 p('核心设计：页面负责录入和展示，后端负责校验与计算，SQLite 保存结构化业务数据，工程目录保存成果文件。当前为单体后端分层架构，业务服务在同一 Python 应用内运行。')
 
 page('1 技术选型与部署形态')
-p('技术选择围绕单机免环境交付与前后端复用展开。前端构建产物可由后端统一托管，因此独立交付不要求目标电脑安装 Node.js。')
+p('技术选择围绕前后端复用、可维护部署与大系统集成展开。开发环境前后端独立启动，生产环境由反向代理统一提供静态页面与 API。')
 table(['层次','当前技术','职责与选择理由'],[
 ('界面','React 18 + TypeScript','组件化表单与结果页面；类型约束减少接口字段不一致。'),
 ('构建与样式','Vite + CSS','生成独立网页和嵌入组件；CSS 变量实现浅色、深色主题。'),
@@ -195,10 +195,10 @@ table(['层次','当前技术','职责与选择理由'],[
 ('校验与配置','Pydantic + pydantic-settings','输入模型、字段范围校验、环境变量配置。'),
 ('持久化','SQLAlchemy 2 + SQLite','ORM 管理五类核心实体；SQLite 无需额外安装。'),
 ('成果生成','openpyxl / python-docx / Pillow','读写 Excel、生成 Word，并将人口图表嵌入报告。'),
-('Windows 打包','PyInstaller + PowerShell','打包 Python 依赖与前端静态文件，可重复构建。'),
+('部署','Vite 构建 + Uvicorn + 反向代理','前端静态资源与后端 API 分层部署，便于监控、扩容和集成。'),
 ],[.8,2.0,4.25])
 fig(deploy,'图 2  开发与交付部署形态')
-p('PostgreSQL 为可选配置路径，通过 DATABASE_URL 和对应驱动切换。当前主要验证与免环境交付使用 SQLite；多人部署仍需单独验证并发、权限和备份策略。')
+p('PostgreSQL 为可选配置路径，通过 DATABASE_URL 和对应驱动切换。当前开发与单实例部署使用 SQLite；多人部署仍需单独验证并发、权限和备份策略。')
 
 page('2 功能模块与实现分工')
 p('系统按“工程 → 社区 → 预测批次 → 年度结果”组织业务。一个普通工程可录入多个社区，各社区共享该工程的人口及设施参数，并保存各自的现状与净迁入率。')
@@ -275,19 +275,17 @@ table(['步骤','操作位置','输入与完成标准'],[
 ('6  查看成果','预测结果','选择社区、预测类型和历史批次；设施选择类别及单位；查看计算说明并下载成果。'),
 ('7  跨机迁移','工程管理','导出工程或下载系统备份；在另一设备导入或恢复。'),
 ],[1.05,1.6,4.4])
-h('Windows 免环境使用',2)
-p('解压 CommunityPredictionSystem-Windows-x64.zip 的全部内容，双击 CommunityPredictionSystem.exe，浏览器自动打开 http://127.0.0.1:8765。目标电脑无需安装 Python、Node.js 或数据库；阅读 Word 报告需要兼容 DOCX 的软件。')
-p('新版数据默认保存在 %LOCALAPPDATA%\\CommunityPredictionSystem。通过“工程管理”可查看实际位置。旧版 data 目录的自动复制仅在目标数据目录尚不存在时触发；更换设备使用工程或系统备份导入。')
-h('源码维护与重复打包',2)
-p('开发者使用根目录“一键启动.bat”，前端访问 5173 端口，后端 API 使用 8000 端口。修改代码后运行“Windows打包.bat”，脚本重新构建前端并通过 PyInstaller 生成发布目录及 ZIP。')
-p('开发数据：backend/data/community_prediction.db 和 runtime/projects。Windows 数据：用户目录下的 community_prediction.db 和 projects。两种运行形态默认使用不同数据位置，切换时通过备份迁移。')
+h('源码运行与生产部署',2)
+p('开发者可使用根目录“一键启动.bat”或 scripts/start-dev.ps1 启动，前端访问 5173 端口，后端 API 使用 8000 端口。首次运行前需要安装 Python 与 Node.js 依赖。')
+p('生产环境先执行前端构建，再由 Web 服务器提供静态资源；FastAPI 由 Uvicorn 或进程管理器运行，并通过反向代理暴露 /api。业务数据目录应使用持久化磁盘并定期备份。')
+p('默认开发数据位于 backend/data/community_prediction.db 和 runtime/projects。可通过 DATABASE_URL 与 PROJECTS_ROOT 指定生产数据位置；跨环境迁移优先使用工程导出或系统备份。')
 
 page('8 接口与嵌入集成设计')
 p('模块提供独立页面、iframe 和 React 组件三种接入形式，复用同一套 HTTP API。React 模式通过 CommunityPredictionModule 或 mountCommunityPredictionModule 挂载，并可传入工程、接口地址和主题。')
 table(['接入项','可配置内容','作用'],[
 ('组件与通信','mode、projectId、apiBase、defaultTheme；hostOrigin、onEvent、hostContext','控制布局、工程和主题；通过回调、CustomEvent 或 postMessage 通知宿主。'),
 ('认证与跨域','token / HOST_API_TOKEN；CORS_ORIGINS','可选共享令牌及允许访问来源；未配置令牌时不启用令牌校验。'),
-('存储配置','DATABASE_URL、PROJECTS_ROOT','配置数据库与工程文件位置；Windows 启动器支持 COMMUNITY_DATA_ROOT。'),
+('存储配置','DATABASE_URL、PROJECTS_ROOT','配置数据库与工程文件位置，并指向受备份保护的持久化存储。'),
 ],[1.05,3.0,3.0])
 h('主要接口分组',2)
 table(['API 路径示例','用途'],[
@@ -323,13 +321,13 @@ table(['文件或目录','维护职责'],[
 ('backend/app/main.py / schemas.py / models.py','接口路由、请求校验及数据库模型。'),
 ('backend/app/services/prediction_service.py\ncalculation_service.py / report_service.py','人口设施计算、计算依据和报告生成。'),
 ('quality_service.py / portability_service.py\nexcel_service.py / run_service.py','预测预检、备份迁移、Excel 和历史记录管理。'),
-('backend/standalone.py\nscripts/build-windows.ps1 / packaging/','Windows 启动、数据位置和重复打包。'),
+('scripts/start-dev.ps1 / stop-dev.ps1\nfrontend/vite*.ts','开发启动、前端构建与嵌入组件配置。'),
 ],[3.7,3.35])
 table(['既有验证记录','验证范围'],[
 ('后端自动化测试','2026年9月6日记录为 56 项通过，覆盖 API、计算、导入导出、单位与备份迁移等。'),
 ('前端构建','TypeScript 检查、独立页面生产构建和嵌入组件构建通过。'),
 ('双社区流程','青禾成长与松龄养老两个模拟社区，各 1000 人；2027—2031 年人口、设施结果及整体与分社区报告。'),
-('Windows 启动验证','独立数据目录中启动发布版；健康接口、默认案例、页面访问及质量检查通过。'),
+('源码运行验证','前后端启动、健康接口、默认案例、页面访问及质量检查通过。'),
 ],[1.5,5.55])
 p('本设计对应 2026年9月7日的项目代码。此前交付验证记录包含 56 项后端测试、前端与嵌入构建及双社区全流程验收；这些记录说明已验证的功能范围，不替代后续版本回归或并发性能测试。')
 

@@ -329,6 +329,7 @@ def build() -> Path:
         ["预测模块页面", "https://portal.example.com/community-prediction/", "反向代理到预测前端"],
         ["预测 API", "https://portal.example.com/community-api", "反向代理到 FastAPI 的 /api"],
     ], [3.0, 7.0, 6.7])
+    doc.add_page_break()
     doc.add_heading("4.2 宿主按钮和页面", level=2)
     add_code(doc, """
 <button id="open-community-prediction">社区预测</button>
@@ -360,7 +361,6 @@ window.addEventListener("message", (event) => {
   console.log("社区预测模块事件", event.data.type, event.data.payload);
 });
 """)
-    doc.add_page_break()
     doc.add_heading("4.3 页面参数", level=2)
     add_table(doc, ["参数", "是否必填", "作用", "示例"], [
         ["projectId", "否", "进入指定预测工程 不传则进入可用的非演示工程", "9"],
@@ -426,10 +426,9 @@ unmount();
         ["HOST_API_TOKEN", "启用 API Bearer Token 校验", "生产环境设置高强度值并由网关或宿主安全传递"],
         ["DATABASE_URL", "数据库连接地址", "当前默认 SQLite 单实例部署可直接使用"],
         ["PROJECTS_ROOT", "工程文件 结果 报告和备份目录", "使用持久化磁盘并纳入备份"],
-        ["COMMUNITY_PORT", "Windows 单机版监听端口", "默认 8765 仅适合本机访问和本地嵌入"],
     ], [3.2, 6.0, 7.6])
     add_bullet(doc, "生产环境必须使用 HTTPS，并由反向代理限制请求体大小 超时时间和下载路径。")
-    add_bullet(doc, "Windows EXE 默认只监听 127.0.0.1，适合单机使用，不适合作为局域网或互联网共享服务。")
+    add_bullet(doc, "生产部署应由 Uvicorn 或进程管理器运行后端，并通过反向代理统一提供静态页面与 /api。")
     add_bullet(doc, "SQLite 适合当前单实例业务。如果未来出现多节点部署或大量并发写入，应迁移到 PostgreSQL，并把工程文件迁移到共享存储。")
     add_bullet(doc, "不要让宿主前端直接访问数据库文件。工程迁移应使用系统备份或工程 ZIP。")
 
@@ -441,7 +440,7 @@ location /community-prediction/ {
 }
 
 location /community-api/ {
-    proxy_pass http://127.0.0.1:8765/api/;
+    proxy_pass http://127.0.0.1:8000/api/;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -477,9 +476,23 @@ location /community-api/ {
         ["浏览器提示跨域错误", "宿主来源未加入 CORS_ORIGINS", "增加精确来源后重启后端"],
         ["下载文件返回 401", "下载链接未携带有效 token", "确认传入 token 与 HOST_API_TOKEN 一致 或改为同源网关代理"],
         ["宿主收不到事件", "hostOrigin 错误 iframe 不是父子关系或来源校验不匹配", "使用宿主真实 origin 并检查 message 事件"],
-        ["复制 EXE 到服务器后外部设备无法访问", "EXE 仅监听 127.0.0.1", "使用正式服务部署和反向代理 不把单机 EXE 当共享服务器"],
+        ["本机可以访问但其他设备无法访问", "仍在使用 127.0.0.1 或网关未开放服务", "使用正式域名和反向代理，并检查防火墙与监听地址"],
         ["组件页面无样式", "只加载了 JS 没加载 CSS", "同时引入 community-prediction-module.css"],
     ], [4.2, 5.4, 7.4])
+
+    doc.add_page_break()
+    doc.add_heading("附录 A 源码下载与一键启动", level=1)
+    add_body(doc, "协作成员从 GitHub 获取源码后，可以通过根目录的一键启动脚本完成本地运行。该方式直接基于源码，用于开发、联调和功能验证。")
+    add_table(doc, ["步骤", "操作", "完成标准"], [
+        ["1 准备环境", "安装 Python 3.11 或更高版本、Node.js 20 或更高版本，并加入 PATH", "命令行可执行 python 或 py，以及 node 和 corepack"],
+        ["2 获取源码", "git clone 仓库，或下载 ZIP 后完整解压", "根目录中可见 backend、frontend、scripts 和一键启动.bat"],
+        ["3 一键启动", "双击根目录的一键启动.bat", "脚本自动创建 .venv、安装依赖、启动服务并打开浏览器"],
+        ["4 访问系统", "浏览器打开 http://127.0.0.1:5173", "前端页面和 http://127.0.0.1:8000/api/health 均可访问"],
+        ["5 停止服务", "双击根目录的停止服务.bat", "5173 与 8000 端口释放"],
+    ], [2.4, 8.0, 6.4])
+    add_bullet(doc, "首次启动需要联网下载 Python 和前端依赖，后续启动仍会校验依赖以适配代码更新。")
+    add_bullet(doc, "不要从压缩包预览窗口直接运行，也不要把 .venv、node_modules 或运行数据库提交到 GitHub。")
+    add_bullet(doc, "若提示端口占用，先运行停止服务.bat，再关闭占用 5173 或 8000 端口的其他程序。")
 
     footer = section.footer.paragraphs[0]
     footer.alignment = WD_ALIGN_PARAGRAPH.CENTER

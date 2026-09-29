@@ -8,20 +8,31 @@
 - 后端：Python、FastAPI、SQLAlchemy、Pydantic
 - 数据库：SQLite（默认），可通过环境变量切换数据库连接
 - 文档与表格：python-docx、openpyxl、Pillow
-- 桌面交付：PyInstaller 单文件 Windows 程序
 
 ## 目录结构
 
 ```text
 backend/       FastAPI 接口、预测服务、数据模型和测试
 frontend/      React 单页面应用及可嵌入组件
-packaging/     Windows 打包配置和交付说明
-scripts/       开发启动、测试、打包和文档生成脚本
+docs/          单页面与大系统嵌入说明
+scripts/       开发启动、测试和文档生成脚本
 测试用数据/   不含姓名等身份字段的自动化测试夹具
 交付文档/     大系统嵌入接入说明
 ```
 
 原始社区调研表、运行数据库、工程数据、日志和构建产物不进入源码仓库。
+
+## 下载后快速启动（推荐）
+
+适用于从 GitHub 下载或克隆源码的 Windows 用户：
+
+1. 安装 **Python 3.11+** 和 **Node.js 20+**，安装时允许加入 `PATH`。
+2. 下载仓库 ZIP 并完整解压，或执行 `git clone`。不要只复制其中几个文件。
+3. 双击根目录的 `一键启动.bat`。
+4. 首次启动会自动创建 `.venv`、安装 Python 与前端依赖；完成后浏览器自动打开 `http://127.0.0.1:5173`。
+5. 使用结束后双击 `停止服务.bat`。
+
+首次安装依赖需要联网，耗时取决于网络。若启动失败，请先关闭占用 `5173` 或 `8000` 端口的程序，再重新双击启动脚本。项目路径可包含中文和空格，但应完整解压后再运行。
 
 ## 开发环境
 
@@ -49,7 +60,7 @@ Copy-Item backend\.env.example backend\.env
 Copy-Item frontend\.env.example frontend\.env
 ```
 
-## 启动开发环境
+## 命令行启动开发环境
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\start-dev.ps1
@@ -64,6 +75,8 @@ powershell -ExecutionPolicy Bypass -File scripts\start-dev.ps1
 powershell -ExecutionPolicy Bypass -File scripts\stop-dev.ps1
 ```
 
+也可直接双击根目录的 `一键启动.bat` 和 `停止服务.bat`。
+
 ## 检查与构建
 
 ```powershell
@@ -73,13 +86,7 @@ pnpm --dir frontend run build
 pnpm --dir frontend run build:embed
 ```
 
-Windows 单文件程序：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1
-```
-
-详细打包说明见 `packaging/WINDOWS_README.txt`，单页面与嵌入说明见 `packaging/SINGLE_WORKSPACE_GUIDE.md` 和 `交付文档/完整社区预测模块嵌入大系统接入说明.docx`。
+单页面与嵌入说明见 `docs/SINGLE_WORKSPACE_GUIDE.md` 和 `交付文档/完整社区预测模块嵌入大系统接入说明.docx`。
 
 ## 融合开发建议
 
@@ -89,7 +96,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1
 git switch -c integration/main-system
 ```
 
-完成一个可验证阶段后提交 Pull Request。不要提交 `.env`、SQLite 数据库、`runtime`、原始调研表、居民明细、`node_modules`、构建目录或 EXE。
+完成一个可验证阶段后提交 Pull Request。不要提交 `.env`、SQLite 数据库、`runtime`、原始调研表、居民明细、`node_modules` 或构建目录。
 
 ## 数据安全
 
