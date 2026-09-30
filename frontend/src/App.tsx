@@ -297,7 +297,7 @@ function ProjectsPage({
             const isEditing = project.id === editingId;
             return (
               <article className={`project-card ${isActive ? "active" : ""}`} key={project.id}>
-                <div className="project-card-top"><span className="project-monogram">{project.name.slice(0, 1).toUpperCase()}</span><div className="project-badges">{project.is_demo && <span className="demo-badge">内置案例</span>}{isActive && <span className="current-badge">当前工程</span>}</div></div>
+                <div className="project-card-top"><span className="project-monogram">{project.name.slice(0, 1).toUpperCase()}</span><div className="project-badges">{isActive && <span className="current-badge">当前工程</span>}</div></div>
                 {isEditing ? (
                   <form className="rename-form" onSubmit={async (event) => {
                     event.preventDefault();
@@ -313,11 +313,11 @@ function ProjectsPage({
                 <div className="project-meta"><span>创建于 {formatTime(project.created_at)}</span><span>更新于 {formatTime(project.updated_at)}</span></div>
                 {!isEditing && <div className="project-card-actions">
                   <button className={isActive ? "secondary-button" : "primary-button"} disabled={isActive} onClick={() => void onSelect(project.id)}>{isActive ? "正在使用" : "打开工程"}</button>
-                  <button className="secondary-button" disabled={project.is_demo} title={project.is_demo ? "内置案例不能重命名" : "重命名工程"} onClick={() => { setEditingId(project.id); setEditingName(project.name); }}>重命名</button>
+                  <button className="secondary-button" title="重命名工程" onClick={() => { setEditingId(project.id); setEditingName(project.name); }}>重命名</button>
                   <button type="button" className="secondary-button" onClick={() => void downloadFile(exportUrl(project.id)).catch(error => window.alert(error instanceof Error ? error.message : "下载失败"))}>导出工程</button>
-                  <button className="danger-button" disabled={project.is_demo || projects.length === 1} title={project.is_demo ? "内置案例不能删除" : projects.length === 1 ? "系统至少需要保留一个工程" : "删除工程"} onClick={() => {
+                  <button className="danger-button" disabled={projects.length === 1} title={projects.length === 1 ? "系统至少需要保留一个工程" : "删除工程"} onClick={() => {
                     if (window.confirm(`确定删除工程“${project.name}”吗？数据库记录会删除，工程文件将移入回收目录。`)) void onDelete(project.id);
-                  }}>{project.is_demo ? "固定保留" : projects.length === 1 ? "至少保留一个" : "删除"}</button>
+                  }}>{projects.length === 1 ? "至少保留一个" : "删除"}</button>
                 </div>}
               </article>
             );
@@ -674,7 +674,7 @@ export function CommunityPredictionModule({
         if (cancelled) return;
         if (data.length === 0) {
           try {
-            const defaultProject = await api.createProject("默认预测项目");
+            const defaultProject = await api.createProject("我的预测工程");
             data = [defaultProject];
             notify({ type: "project-created", payload: defaultProject });
           } catch (error) {
@@ -684,8 +684,7 @@ export function CommunityPredictionModule({
         }
         if (cancelled) return;
         setProjects(data);
-        const workspaceDefault = data.find((item) => !item.is_demo)?.id;
-        const selected = projectId && data.some((item) => item.id === projectId) ? projectId : workspaceDefault || data[0].id;
+        const selected = projectId && data.some((item) => item.id === projectId) ? projectId : data[0].id;
         activeProjectIdRef.current = selected;
         setActiveProjectId(selected);
         await refreshProjectData(selected);
@@ -971,7 +970,7 @@ export function CommunityPredictionModule({
         <div className="brand"><BrandMark /><div><strong>完整社区预测</strong></div></div>
         <div className="project-context">
           <span>当前工程</span>
-          <select value={activeProject.id} onChange={(event) => void selectProject(Number(event.target.value))}>{projects.map((project) => <option value={project.id} key={project.id}>{project.name}{project.is_demo ? "（内置案例）" : ""}</option>)}</select>
+          <select value={activeProject.id} onChange={(event) => void selectProject(Number(event.target.value))}>{projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select>
           <small>{editorDirty ? "社区资料未保存" : Object.keys(drafts.current[activeProject.id] || {}).length ? "参数未保存（预测前自动保存）" : "已保存"}</small>
         </div>
         <div className="run-actions">
@@ -981,7 +980,6 @@ export function CommunityPredictionModule({
       </header>
       <div className="app-body">
         <main className="main-content">
-          {activeProject.is_demo && <section className="demo-notice"><div><strong>内置案例 · 只读演示</strong><p>可以查看资料、图表及下载报告。录入自己的社区、调整参数或重新预测，请先新建工程。</p></div><button className="primary-button" onClick={()=>setShowCreateProject(true)}>新建我的工程</button></section>}
           <nav className="workspace-nav" aria-label="完整社区预测功能">{([ 
             ["dashboard","社区数据",dashboard.community_count ? `${dashboard.community_count} 个社区` : "待录入"],
             ["population","人口预测",runs.some(r=>r.kind==="population" && r.status==="success") ? "已有结果" : "待执行"],
@@ -992,12 +990,12 @@ export function CommunityPredictionModule({
           ] as Array<[Page,string,string]>).map(([target,title,status],i)=><button className={page===target?"active":""} key={target} onClick={()=>navigatePage(target)}><b>{i+1}</b><span><strong>{title}</strong></span><em>{status}</em></button>)}</nav>
 
           {page === "communities" && !selectedCommunity && <div className="page-tools"><input className="search-input page-search" aria-label="搜索社区" placeholder="搜索社区编号、名称或地区" value={communitySearchQuery} onChange={(event) => searchCommunities(event.target.value)} /></div>}
-          {page === "dashboard" && <CommunityDataInputPage communities={allCommunities} exportHref={id=>api.communityTemplateUrl(activeProject.id,id)} readOnly={activeProject.is_demo} onDirtyChange={setEditorDirty} key={activeProject.id} regions={communityRegions} baseYear={populationBaseYear} dashboard={dashboard} onCreate={createCommunity} onImport={importCommunity} />}
+          {page === "dashboard" && <CommunityDataInputPage communities={allCommunities} exportHref={id=>api.communityTemplateUrl(activeProject.id,id)} readOnly={false} onDirtyChange={setEditorDirty} key={activeProject.id} regions={communityRegions} baseYear={populationBaseYear} dashboard={dashboard} onCreate={createCommunity} onImport={importCommunity} />}
           {page === "projects" && <ProjectsPage projects={projects} activeProjectId={activeProject.id} onCreate={create} onSelect={selectProject} onRename={renameProject} onDelete={deleteProject} exportUrl={id=>api.projectExportUrl(id)} systemBackupUrl={api.systemBackupUrl()} onImport={importProjectArchive} onRestore={restoreSystemBackup} />}
-          {page === "population" && <div className="page-stack"><PopulationParameterForm readOnly={activeProject.is_demo} onDraftChange={(data) => changeDraft("population", data)} value={parameters.population} templateHref={api.parameterTemplateUrl(activeProject.id, "population")} onSave={(data) => saveParameters("population", data)} onImport={(file) => importParameters("population", file)} /><PredictionRunPanel readOnly={activeProject.is_demo} kind="population" busy={busy} communityCount={dashboard.community_count} runCount={runs.filter((run) => run.kind === "population").length} quality={quality?.kind==="population"?quality:null} onFix={fixQualityIssue} onRun={() => void runPrediction("population")} /></div>}
-          {page === "facility" && <div className="page-stack"><FacilityParameterForm readOnly={activeProject.is_demo} key={activeProject.id} populationParameters={drafts.current[activeProject.id]?.population || parameters.population?.data || populationRange} onDraftChange={(data) => changeDraft("facility", data)} value={parameters.facility} templateHref={api.parameterTemplateUrl(activeProject.id, "facility")} onSave={(data) => saveParameters("facility", data)} onImport={(file) => importParameters("facility", file)} /><PredictionRunPanel readOnly={activeProject.is_demo} kind="facility" busy={busy} communityCount={dashboard.community_count} runCount={runs.filter((run) => run.kind === "facility").length} populationReady={runs.some((run) => run.kind === "population" && run.status === "success")} quality={quality?.kind==="facility"?quality:null} onFix={fixQualityIssue} onRun={() => void runPrediction("facility")} /></div>}
-          {page === "communities" && (selectedCommunity ? <CommunityEditor exportHref={api.communityTemplateUrl(activeProject.id,selectedCommunity.id)} readOnly={activeProject.is_demo} initialTab={selectedCommunityTab} onDirtyChange={setEditorDirty} key={selectedCommunity.id} community={selectedCommunity} regions={communityRegions} baseYear={populationBaseYear} onSave={updateCommunity} onCancel={() => setSelectedCommunity(null)} hasResults={runs.some(run => run.status === "success" && run.community_ids?.includes(selectedCommunity.id))} results={<ResultsPage communities={communities} readOnly={activeProject.is_demo} runs={runs.filter(run => run.community_ids?.includes(selectedCommunity.id))} api={api} onDeleteRun={deletePredictionRun} communityFilterId={selectedCommunity.id} onReportGenerated={async()=>{await refreshProjectData(activeProject.id);}} />} /> : <CommunitiesPage communities={communities} onOpen={(community,tab)=>{if(tab==="预测结果" && !runs.some(r=>r.status==="success" && r.community_ids?.includes(community.id))){showToast("该社区尚无成功预测，请先执行预测。",true);return;}setSelectedCommunityTab(tab || "社区基础信息");setSelectedCommunity(community);}} />)}
-          {page === "results" && <ResultsPage communities={allCommunities} readOnly={activeProject.is_demo} key={activeProject.id} runs={runs} api={api} onDeleteRun={deletePredictionRun} onClear={clearHistory} onReportGenerated={async()=>{await refreshProjectData(activeProject.id);}} />}
+          {page === "population" && <div className="page-stack"><PopulationParameterForm readOnly={false} onDraftChange={(data) => changeDraft("population", data)} value={parameters.population} templateHref={api.parameterTemplateUrl(activeProject.id, "population")} onSave={(data) => saveParameters("population", data)} onImport={(file) => importParameters("population", file)} /><PredictionRunPanel readOnly={false} kind="population" busy={busy} communityCount={dashboard.community_count} runCount={runs.filter((run) => run.kind === "population").length} quality={quality?.kind==="population"?quality:null} onFix={fixQualityIssue} onRun={() => void runPrediction("population")} /></div>}
+          {page === "facility" && <div className="page-stack"><FacilityParameterForm readOnly={false} key={activeProject.id} populationParameters={drafts.current[activeProject.id]?.population || parameters.population?.data || populationRange} onDraftChange={(data) => changeDraft("facility", data)} value={parameters.facility} templateHref={api.parameterTemplateUrl(activeProject.id, "facility")} onSave={(data) => saveParameters("facility", data)} onImport={(file) => importParameters("facility", file)} /><PredictionRunPanel readOnly={false} kind="facility" busy={busy} communityCount={dashboard.community_count} runCount={runs.filter((run) => run.kind === "facility").length} populationReady={runs.some((run) => run.kind === "population" && run.status === "success")} quality={quality?.kind==="facility"?quality:null} onFix={fixQualityIssue} onRun={() => void runPrediction("facility")} /></div>}
+          {page === "communities" && (selectedCommunity ? <CommunityEditor exportHref={api.communityTemplateUrl(activeProject.id,selectedCommunity.id)} readOnly={false} initialTab={selectedCommunityTab} onDirtyChange={setEditorDirty} key={selectedCommunity.id} community={selectedCommunity} regions={communityRegions} baseYear={populationBaseYear} onSave={updateCommunity} onCancel={() => setSelectedCommunity(null)} hasResults={runs.some(run => run.status === "success" && run.community_ids?.includes(selectedCommunity.id))} results={<ResultsPage communities={communities} readOnly={false} runs={runs.filter(run => run.community_ids?.includes(selectedCommunity.id))} api={api} onDeleteRun={deletePredictionRun} communityFilterId={selectedCommunity.id} onReportGenerated={async()=>{await refreshProjectData(activeProject.id);}} />} /> : <CommunitiesPage communities={communities} onOpen={(community,tab)=>{if(tab==="预测结果" && !runs.some(r=>r.status==="success" && r.community_ids?.includes(community.id))){showToast("该社区尚无成功预测，请先执行预测。",true);return;}setSelectedCommunityTab(tab || "社区基础信息");setSelectedCommunity(community);}} />)}
+          {page === "results" && <ResultsPage communities={allCommunities} readOnly={false} key={activeProject.id} runs={runs} api={api} onDeleteRun={deletePredictionRun} onClear={clearHistory} onReportGenerated={async()=>{await refreshProjectData(activeProject.id);}} />}
         </main>
       </div>
     </div>

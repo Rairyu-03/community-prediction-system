@@ -47,9 +47,6 @@ class ProjectRead(ApiModel):
     path: str
     created_at: datetime
     updated_at: datetime
-    is_demo: bool = False
-
-
 class ParameterUpdate(BaseModel):
     data: dict[str, Any]
 

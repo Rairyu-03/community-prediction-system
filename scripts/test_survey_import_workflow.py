@@ -21,8 +21,8 @@ from openpyxl import load_workbook
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
-from app.demo_data import DEMO_FACILITY_PARAMETERS  # noqa: E402
 from app.main import app  # noqa: E402
+from workflow_sample_data import SAMPLE_FACILITY_PARAMETERS  # noqa: E402
 
 
 SOURCE = ROOT / "社区数据" / "610103-D 《社区基本信息与服务设施信息调研表》.xlsx"
@@ -85,8 +85,7 @@ def main() -> None:
         response = client.put(base + "/parameters/population", json={"data": population})
         assert response.status_code == 200, response.text
 
-        facility = deepcopy(DEMO_FACILITY_PARAMETERS)
-        facility["isDemo"] = False
+        facility = deepcopy(SAMPLE_FACILITY_PARAMETERS)
         facility["parameterNature"] = "流程验证模拟标准；正式项目应替换为当地现行配置标准"
         for reference in facility.get("references", {}).values():
             if isinstance(reference, dict):

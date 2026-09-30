@@ -32,11 +32,6 @@ class Project(Base):
         back_populates="project", cascade="all, delete-orphan"
     )
 
-    @property
-    def is_demo(self) -> bool:
-        return self.name == "默认预测项目"
-
-
 class ParameterSet(Base):
     __tablename__ = "parameter_sets"
     __table_args__ = (UniqueConstraint("project_id", "kind", name="uq_project_parameter_kind"),)

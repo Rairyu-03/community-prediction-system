@@ -83,12 +83,12 @@ def test_excel_sheet_names_are_safe_and_unique():
     assert "/" not in first and ":" not in first
 
 
-def test_demo_initialization_does_not_overwrite_existing_edits_or_recreate_history(tmp_path):
+def test_legacy_builtin_project_is_removed_on_upgrade(tmp_path):
     from sqlalchemy import create_engine, select
     from sqlalchemy.orm import Session
     from app.database import Base
-    from app.models import Project, Community, ParameterSet, PredictionRun
-    from app.services.demo_service import ensure_default_demo_project
+    from app.models import Project, Community, ParameterSet
+    from app.services.project_service import remove_legacy_builtin_project
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
     with Session(engine) as db:
@@ -98,10 +98,10 @@ def test_demo_initialization_does_not_overwrite_existing_edits_or_recreate_histo
         db.add_all([ParameterSet(project_id=project.id, kind="population", data={"duration": 9}), ParameterSet(project_id=project.id, kind="facility", data={})])
         db.add(Community(project_id=project.id, code="EDIT", name="用户修改后的社区"))
         db.commit()
-        ensure_default_demo_project(db)
-        assert db.scalar(select(Community)).name == "用户修改后的社区"
-        assert db.scalar(select(ParameterSet).where(ParameterSet.kind == "population")).data["duration"] == 9
-        assert list(db.scalars(select(PredictionRun))) == []
+        remove_legacy_builtin_project(db)
+        assert db.scalar(select(Project)) is None
+        assert db.scalar(select(Community)) is None
+        assert db.scalar(select(ParameterSet)) is None
 
 
 def test_clear_rejects_running_prediction(tmp_path):

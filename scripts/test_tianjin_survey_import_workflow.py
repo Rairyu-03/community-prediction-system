@@ -1,6 +1,7 @@
 r"""Retain an acceptance project created from the Tianjin aggregate survey workbook."""
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime
 import json
 from pathlib import Path
@@ -13,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
 from app.main import app  # noqa: E402
+from workflow_sample_data import SAMPLE_FACILITY_PARAMETERS, SAMPLE_POPULATION_PARAMETERS  # noqa: E402
 
 
 SOURCE = ROOT / "社区数据" / "测试-《社区基本信息与服务设施信息调研表.xlsx"
@@ -27,11 +29,8 @@ def main() -> None:
     evidence.mkdir(parents=True, exist_ok=True)
 
     with TestClient(app) as client:
-        projects = client.get("/api/projects").json()
-        demo = next(project for project in projects if project.get("is_demo"))
-        demo_base = f"/api/projects/{demo['id']}"
-        demo_population = client.get(demo_base + "/parameters/population").json()["data"]
-        demo_facility = client.get(demo_base + "/parameters/facility").json()["data"]
+        population_parameters = deepcopy(SAMPLE_POPULATION_PARAMETERS)
+        facility_parameters = deepcopy(SAMPLE_FACILITY_PARAMETERS)
 
         project_name = f"测试工程-晨光社区调研数据-{stamp}"
         response = client.post("/api/projects", json={"name": project_name})
@@ -56,7 +55,7 @@ def main() -> None:
         assert community["facilities"]["助餐设施"]["社区食堂建筑面积（平方米）"] == 590.72
         assert community["facilities"]["停车充电设施"]["机动车充电桩数量（个）"] == 16
 
-        for kind, data in (("population", demo_population), ("facility", demo_facility)):
+        for kind, data in (("population", population_parameters), ("facility", facility_parameters)):
             saved = client.put(base + f"/parameters/{kind}", json={"data": data})
             assert saved.status_code == 200, saved.text
             assert client.get(base + f"/parameters/{kind}").json()["data"] == data
@@ -67,7 +66,7 @@ def main() -> None:
         assert population_response.status_code == 200, population_response.text
         population_run = population_response.json()
         population_results = client.get(f"/api/runs/{population_run['id']}/results").json()
-        assert len(population_results) == demo_population["duration"]
+        assert len(population_results) == population_parameters["duration"]
         assert all(row["data"].get("totalPopulation") for row in population_results)
 
         facility_quality = client.get(base + "/quality", params={"kind": "facility"}).json()

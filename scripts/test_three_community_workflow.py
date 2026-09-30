@@ -17,8 +17,8 @@ from openpyxl import load_workbook
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
-from app.demo_data import DEMO_COMMUNITY, DEMO_FACILITY_PARAMETERS, DEMO_POPULATION_PARAMETERS
 from app.defaults import AGE_GROUPS
+from workflow_sample_data import SAMPLE_FACILITIES, SAMPLE_FACILITY_PARAMETERS, SAMPLE_POPULATION_PARAMETERS
 
 
 def main():
@@ -45,9 +45,9 @@ def main():
     call("POST", "/projects", 422, json={"name": "   "})
     ok("新建工程、重命名、空名称校验")
 
-    population = deepcopy(DEMO_POPULATION_PARAMETERS)
+    population = deepcopy(SAMPLE_POPULATION_PARAMETERS)
     population.update(startYear=2026, duration=5)
-    for kind, data in (("population", population), ("facility", DEMO_FACILITY_PARAMETERS)):
+    for kind, data in (("population", population), ("facility", SAMPLE_FACILITY_PARAMETERS)):
         call("PUT", prefix + f"/parameters/{kind}", json={"data": data})
         template = call("GET", prefix + f"/parameters/{kind}/template")
         call("POST", prefix + f"/parameters/{kind}/import", files={"file": (kind+".xlsx", template.content)})
@@ -65,7 +65,7 @@ def main():
             for k in range(count):
                 age = lo + k % (min(hi, 95)-lo+1)
                 records.append({"序号": len(records)+1, "性别": "男" if k%2 else "女", "出生年份": 2026-age, "数据来源": "自定义全流程测试模拟数据，非真实居民"})
-        facilities = deepcopy(DEMO_COMMUNITY["facilities"])
+        facilities = deepcopy(SAMPLE_FACILITIES)
         for values in facilities.values():
             if isinstance(values, dict):
                 for key, value in values.items():
@@ -188,11 +188,6 @@ def main():
         text = check_report(single,[item["name"]])
         assert all(other["name"] not in text for other in saved if other["id"] != item["id"])
     ok("重新生成并保留人口批次、整体报告和三个分社区报告，报告无跨社区串入")
-    demo = next(p for p in call("GET","/projects").json() if p["is_demo"])
-    demo_community = call("GET",f"/projects/{demo['id']}/communities").json()[0]
-    assert all(rate != 0 for rate in demo_community["migration_rates"].values())
-    call("POST",f"/projects/{demo['id']}/communities",403,json=saved[0])
-    ok("内置案例8组模拟迁移率已生效；只读保护仍有效")
     summary = {"project":project,"communities":[{"id":c["id"],"code":c["code"],"name":c["name"],"population":sum(c["age_counts"].values())} for c in saved],"checks":checks,"runs":call("GET",prefix+"/runs").json()}
     (out/"summary.json").write_text(json.dumps(summary,ensure_ascii=False,indent=2),encoding="utf-8")
     print("RESULT "+str(out),flush=True)

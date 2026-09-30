@@ -7,14 +7,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 import os
 import sys
-import re
 from typing import Annotated, Any
 from urllib.parse import quote, urlencode
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -49,14 +48,12 @@ from .services.excel_service import (
     parse_population_parameters,
     validate_community_workbook,
 )
-from .services.demo_service import ensure_default_demo_project
 from .services.prediction_service import run_facility_prediction, run_population_prediction
-from .services.project_service import archive_project, create_project, import_project, rename_project, save_project_as
+from .services.project_service import archive_project, create_project, import_project, remove_legacy_builtin_project, rename_project, save_project_as
 from .services.report_service import REPORT_FORMAT_VERSION, generate_facility_report
 from .services.run_service import build_run_backup, delete_run, clear_project_runs
 from .services.validation_service import validate_parameters
 from .services.community_service import restore_population_details
-from .services.demo_completion import complete_demo_data
 from .services.calculation_service import explain_result
 from .services.portability_service import build_project_archive, import_project_archive, build_system_backup, restore_system_backup
 from .services.quality_service import inspect_project_quality
@@ -70,33 +67,19 @@ build_id = os.environ.get("COMMUNITY_BUILD_ID", "development")
 async def lifespan(_app: FastAPI):
     init_db()
     with SessionLocal() as db:
-        demo = ensure_default_demo_project(db)
+        remove_legacy_builtin_project(db)
         restore_population_details(db)
-        complete_demo_data(db, demo)
     yield
 
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.1.0",
+    version="1.0.1",
     description="完整社区设施需求预测与动态匹配模块 API",
     lifespan=lifespan,
 )
 
 
-@app.middleware("http")
-async def protect_builtin_example(request, call_next):
-    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
-        project_match = re.fullmatch(re.escape(settings.api_prefix) + r"/projects/(\d+)/.*", request.url.path)
-        run_match = re.fullmatch(re.escape(settings.api_prefix) + r"/runs/(\d+)(?:/.*)?", request.url.path)
-        with SessionLocal() as db:
-            project = db.get(Project, int(project_match[1])) if project_match else None
-            if run_match:
-                run = db.get(PredictionRun, int(run_match[1]))
-                project = run.project if run else None
-            if project and project.is_demo:
-                return JSONResponse(status_code=403, content={"detail": "默认预测案例为只读示范，请先新建工程，再录入数据、修改参数或执行预测。"})
-    return await call_next(request)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
@@ -148,7 +131,7 @@ def get_parameter_or_404(db: Session, project_id: int, kind: str) -> ParameterSe
 
 @app.get(f"{settings.api_prefix}/health")
 def health() -> dict[str, Any]:
-    return {"status": "ok", "service": "community-prediction", "version": "0.1.0", "buildId": build_id}
+    return {"status": "ok", "service": "community-prediction", "version": "1.0.1", "buildId": build_id}
 
 
 @app.post(f"{settings.api_prefix}/client-errors", include_in_schema=False)
@@ -202,11 +185,7 @@ async def restore_system(file: Annotated[UploadFile, File()], _: ApiAuth, db: Db
 
 @app.get(f"{settings.api_prefix}/projects", response_model=list[ProjectRead])
 def list_projects(_: ApiAuth, db: DbSession) -> list[Project]:
-    return list(
-        db.scalars(
-            select(Project).order_by((Project.name == "默认预测项目").desc(), Project.updated_at.desc())
-        ).all()
-    )
+    return list(db.scalars(select(Project).order_by(Project.updated_at.desc())).all())
 
 
 @app.post(f"{settings.api_prefix}/projects", response_model=ProjectRead, status_code=201)
@@ -220,8 +199,6 @@ def add_project(payload: ProjectCreate, _: ApiAuth, db: DbSession) -> Project:
 @app.patch(f"{settings.api_prefix}/projects/{{project_id}}", response_model=ProjectRead)
 def edit_project(project_id: int, payload: ProjectUpdate, _: ApiAuth, db: DbSession) -> Project:
     project = get_project_or_404(db, project_id)
-    if project.is_demo:
-        raise HTTPException(status_code=400, detail="默认预测项目是内置案例，不能重命名")
     try:
         return rename_project(db, project, payload.name)
     except ValueError as exc:
@@ -231,8 +208,6 @@ def edit_project(project_id: int, payload: ProjectUpdate, _: ApiAuth, db: DbSess
 @app.delete(f"{settings.api_prefix}/projects/{{project_id}}", status_code=204)
 def remove_project(project_id: int, _: ApiAuth, db: DbSession) -> None:
     project = get_project_or_404(db, project_id)
-    if project.is_demo:
-        raise HTTPException(status_code=400, detail="默认预测项目是内置案例，不能删除")
     try:
         archive_project(db, project)
     except ValueError as exc:

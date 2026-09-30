@@ -113,7 +113,6 @@ function cleanSourceNote(value: unknown): string {
   return String(value || "")
     .replace(/(?:根据|初始化自)附件\s*[一二三四五六七八九十\d]+[；，、。]?/g, "")
     .replace(/正式项目应由业务方确认并导入[。]?/g, "")
-    .replace(/庆有西里内置案例演示值[，,]?/g, "")
     .trim();
 }
 
@@ -235,7 +234,6 @@ export function FacilityParameterForm({ value, templateHref, onSave, onImport, o
       <ParameterHeader templateHref={templateHref} onImport={onImport} onSave={() => void onSave(draft)} readOnly={readOnly} />
     </div>
     <fieldset className="parameter-readonly-body" disabled={readOnly}>
-    {draft.isDemo === true && <div className="demo-parameter-banner"><strong>庆有西里内置案例参数</strong><span>当前数值用于完整流程演示，不代表天津市正式设施配置标准。新建工程后请按当地标准重新填写。</span></div>}
     {missingCount > 0 && <div className="warning-banner">还有 {missingCount} 个设施标准未填写；停车充电还需至少填写一个年度的两类机动车人均保有量。补齐后即可运行设施预测。</div>}
     <div className="parameter-table-wrap"><table className="parameter-table facility-parameter-table"><thead><tr><th>参数项</th><th>参数值</th><th>参考来源</th></tr></thead><tbody>{group.fields.map(([label, path]) => {
       const reference = (references[path] || {}) as Data;

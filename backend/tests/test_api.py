@@ -74,63 +74,11 @@ def test_single_workspace_entry_preserves_integration_parameters() -> None:
         )
 
 
-def test_demo_rejects_mutation_and_preserves_data() -> None:
-    with TestClient(app) as client:
-        demo = next(p for p in client.get('/api/projects').json() if p['is_demo'])
-        base = f"/api/projects/{demo['id']}"
-        communities = client.get(base + '/communities').json()
-        runs = client.get(base + '/runs').json()
-        for method, path, payload in [
-            ('post', base + '/communities', {}),
-            ('put', base + f"/communities/{communities[0]['id']}", {}),
-            ('delete', base + f"/communities/{communities[0]['id']}", None),
-            ('put', base + '/parameters/population', {}),
-            ('post', base + '/communities/import', {}),
-            ('post', base + '/predictions/population', {}),
-            ('post', base + '/predictions/facility', {}),
-            ('post', base + '/runs/clear', []),
-            ('delete', f"/api/runs/{runs[0]['id']}", None),
-        ]:
-            response = client.request(method, path, json=payload)
-            assert response.status_code == 403, (path, response.text)
-        assert client.get(base + '/communities').json() == communities
-        assert client.get(base + '/runs').json() == runs
-
-
-def test_default_project_is_complete_qingyou_xili_demo() -> None:
+def test_no_builtin_project_is_created() -> None:
     with TestClient(app) as client:
         projects = client.get("/api/projects").json()
-        demo = next(project for project in projects if project["name"] == "默认预测项目")
-        assert demo["is_demo"] is True
-        project_id = demo["id"]
-
-        communities = client.get(f"/api/projects/{project_id}/communities").json()
-        assert len(communities) == 1
-        assert communities[0]["code"] == "120101-A"
-        assert communities[0]["name"] == "庆有西里社区"
-        assert sum(communities[0]["age_counts"].values()) == 10375
-
-        facility = client.get(f"/api/projects/{project_id}/parameters/facility").json()["data"]
-        assert facility["status"] == "ready"
-        assert facility["missingRequired"] == []
-        assert facility["isDemo"] is True
-
-        for kind, filename in (("population", "PopPre_Parameters.xlsx"), ("facility", "FacPre_Parameters.xlsx")):
-            template = client.get(f"/api/projects/{project_id}/parameters/{kind}/template")
-            assert template.status_code == 200
-            assert template.content.startswith(b"PK")
-            assert filename in template.headers["content-disposition"]
-
-        runs = client.get(f"/api/projects/{project_id}/runs").json()
-        population_run = next(run for run in runs if run["kind"] == "population" and run["status"] == "success")
-        facility_run = next(run for run in runs if run["kind"] == "facility" and run["status"] == "success")
-        assert population_run["output_file"]
-        assert facility_run["output_file"]
-        assert facility_run["report_available"] is True
-        assert client.get(f"/api/runs/{facility_run['id']}/report").content.startswith(b"PK")
-
-        assert client.patch(f"/api/projects/{project_id}", json={"name": "不能修改"}).status_code == 400
-        assert client.delete(f"/api/projects/{project_id}").status_code == 400
+        assert all(project["name"] != "默认预测项目" for project in projects)
+        assert all("is_demo" not in project for project in projects)
 
 
 def test_full_project_import_and_prediction_flow() -> None:

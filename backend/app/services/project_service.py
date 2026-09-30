@@ -17,6 +17,9 @@ from ..defaults import DEFAULT_FACILITY_PARAMETERS, DEFAULT_POPULATION_PARAMETER
 from ..models import ParameterSet, Project
 
 
+LEGACY_BUILTIN_PROJECT_NAME = "默认预测项目"
+
+
 def safe_directory_name(name: str) -> str:
     normalized = re.sub(r"\s+", "_", name.strip())
     normalized = re.sub(r"[^\w\u4e00-\u9fff.-]", "_", normalized)
@@ -76,6 +79,18 @@ def create_project(db: Session, name: str) -> Project:
         raise
     db.refresh(project)
     return project
+
+
+def remove_legacy_builtin_project(db: Session) -> None:
+    """Remove the former bundled example when an existing installation is upgraded."""
+    project = db.scalar(select(Project).where(Project.name == LEGACY_BUILTIN_PROJECT_NAME))
+    if project is None:
+        return
+    try:
+        archive_project(db, project)
+    except ValueError:
+        db.delete(project)
+        db.commit()
 
 
 def rename_project(db: Session, project: Project, name: str) -> Project:

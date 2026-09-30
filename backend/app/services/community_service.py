@@ -5,7 +5,6 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..config import WORKSPACE_ROOT
 from ..models import Community
 from .excel_service import parse_community
 
@@ -15,8 +14,6 @@ def restore_population_details(db: Session) -> None:
         if community.population_records:
             continue
         source = Path(community.source_file) if community.source_file else None
-        if source is None and community.project.is_demo:
-            source = next((WORKSPACE_ROOT / "附件").glob("附件3.*.xlsx"), None)
         if source is None or not source.is_file():
             continue
         try:

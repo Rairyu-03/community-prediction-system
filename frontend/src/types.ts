@@ -4,7 +4,6 @@ export type Project = {
   path: string;
   created_at: string;
   updated_at: string;
-  is_demo?: boolean;
 };
 
 export type Community = {

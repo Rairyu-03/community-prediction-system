@@ -7,8 +7,26 @@ import json
 
 from fastapi.testclient import TestClient
 
-from app.demo_data import DEMO_COMMUNITY, DEMO_FACILITY_PARAMETERS, DEMO_POPULATION_PARAMETERS
+from app.defaults import DEFAULT_FACILITY_PARAMETERS, DEFAULT_POPULATION_PARAMETERS
 from app.main import app
+
+
+def _complete_facility_parameters() -> dict:
+    data = deepcopy(DEFAULT_FACILITY_PARAMETERS)
+    data["meal"].update({"demandRate": 35, "diningAreaPerPerson": 1.2, "deliveryAreaPerPerson": 0.4, "kitchenAreaPerPerson": 0.35, "preparationAreaPerPerson": 0.25, "diningSpaceAreaPerPerson": 0.6})
+    data["elderly"].update({"stationDemandRate": 20, "stationAreaPerPerson": 3, "rehabilitationRates": {"60-69岁": 18, "70-79岁": 25, "80岁以上": 32}, "entertainmentRates": {"60-69岁": 30, "70-79岁": 36, "80岁以上": 40}, "transportRates": {"60-69岁": 8, "70-79岁": 16, "80岁以上": 28}})
+    data["childcare"].update({"nurseryDemandRate": 40, "nurseryAreaPerPerson": 8, "kindergartenDemandRate": 85, "kindergartenBuildingAreaPerPerson": 8.8, "kindergartenLandAreaPerPerson": 15, "outdoorAreaPerPerson": 4, "sharedAreaPerPerson": 2, "combinedRoomAreaPerPerson": 5.5, "activityRoomAreaPerPerson": 3.2, "bedroomAreaPerPerson": 2.8})
+    data["parking"].update({"chargersPerHousehold": 0.25, "parkingSpacesPerHousehold": 1, "newEnergyVehiclesPerCapita": {str(year): 0.12 for year in range(2026, 2037)}, "vehiclesPerCapita": {str(year): 0.32 for year in range(2026, 2037)}})
+    data["activity"].update({"publicAreaPerCapita": 0.3, "sportsAreaPerCapita": 0.1})
+    return data
+
+
+VALID_COMMUNITY = {
+    "code": "MOVE", "name": "迁移测试社区", "region": "全国", "households": 200,
+    "average_household_size": 2.5, "population_base_year": 2026,
+    "age_counts": {"2": 50, "30": 300, "65": 100, "75": 40, "85": 10},
+    "migration_rates": {}, "facilities": {}, "idle_spaces": [],
+}
 
 
 def test_quality_project_archive_and_system_backup_roundtrip():
@@ -23,10 +41,10 @@ def test_quality_project_archive_and_system_backup_roundtrip():
             assert empty.json()["ready"] is False
             assert any(row["code"] == "NO_COMMUNITIES" for row in empty.json()["issues"])
 
-            assert client.put(base + "/parameters/population", json={"data": deepcopy(DEMO_POPULATION_PARAMETERS)}).status_code == 200
-            assert client.put(base + "/parameters/facility", json={"data": deepcopy(DEMO_FACILITY_PARAMETERS)}).status_code == 200
+            assert client.put(base + "/parameters/population", json={"data": deepcopy(DEFAULT_POPULATION_PARAMETERS)}).status_code == 200
+            assert client.put(base + "/parameters/facility", json={"data": _complete_facility_parameters()}).status_code == 200
             for index in (1, 2):
-                community = deepcopy(DEMO_COMMUNITY)
+                community = deepcopy(VALID_COMMUNITY)
                 community.update(code=f"MOVE-{index}", name=f"迁移测试社区{index}", population_base_year=2026)
                 response = client.post(base + "/communities", json=community)
                 assert response.status_code == 201, response.text

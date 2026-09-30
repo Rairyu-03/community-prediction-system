@@ -12,10 +12,20 @@ from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 
 from app.main import app
-from app.demo_data import DEMO_FACILITY_PARAMETERS
+from app.defaults import DEFAULT_FACILITY_PARAMETERS
 from app.services.calculation_service import FACILITY_FORMULAS
 from app.services.excel_service import parse_community, validate_community_workbook
 from app.services.excel_service import export_community_template
+
+
+def _complete_facility_parameters() -> dict:
+    data = deepcopy(DEFAULT_FACILITY_PARAMETERS)
+    data["meal"].update({"demandRate": 35, "diningAreaPerPerson": 1.2, "deliveryAreaPerPerson": 0.4, "kitchenAreaPerPerson": 0.35, "preparationAreaPerPerson": 0.25, "diningSpaceAreaPerPerson": 0.6})
+    data["elderly"].update({"stationDemandRate": 20, "stationAreaPerPerson": 3, "rehabilitationRates": {"60-69岁": 18, "70-79岁": 25, "80岁以上": 32}, "entertainmentRates": {"60-69岁": 30, "70-79岁": 36, "80岁以上": 40}, "transportRates": {"60-69岁": 8, "70-79岁": 16, "80岁以上": 28}})
+    data["childcare"].update({"nurseryDemandRate": 40, "nurseryAreaPerPerson": 8, "kindergartenDemandRate": 85, "kindergartenBuildingAreaPerPerson": 8.8, "kindergartenLandAreaPerPerson": 15, "outdoorAreaPerPerson": 4, "sharedAreaPerPerson": 2, "combinedRoomAreaPerPerson": 5.5, "activityRoomAreaPerPerson": 3.2, "bedroomAreaPerPerson": 2.8})
+    data["parking"].update({"chargersPerHousehold": 0.25, "parkingSpacesPerHousehold": 1, "newEnergyVehiclesPerCapita": {str(year): 0.12 for year in range(2026, 2037)}, "vehiclesPerCapita": {str(year): 0.32 for year in range(2026, 2037)}})
+    data["activity"].update({"publicAreaPerCapita": 0.3, "sportsAreaPerCapita": 0.1})
+    return data
 
 
 def test_summary_only_export_does_not_invent_residents(tmp_path):
@@ -58,33 +68,6 @@ def test_saved_community_export_roundtrip_and_scope(tmp_path):
         assert client.delete(root).status_code==204
 
 
-def test_demo_export_is_complete_and_contains_provenance():
-    with TestClient(app) as client:
-        project=next(p for p in client.get('/api/projects').json() if p['is_demo'])
-        root=f"/api/projects/{project['id']}"
-        c=client.get(root+'/communities').json()[0]
-        response=client.get(root+'/communities/template')
-        assert response.status_code==200
-        wb=load_workbook(BytesIO(response.content),data_only=True)
-        assert wb['社区基本信息']['B2'].value=='120101-A'
-        assert wb['社区人口列表'].max_row==10376
-        assert wb['机动车充电桩列表'].max_row==80
-        for row in wb['机动车充电桩列表'].iter_rows(min_row=2):
-            assert all(cell.value is not None for cell in row[:4])
-        assert c['facilities']['公共活动场地']['公共活动场地面积（平方米）']>0
-        assert any('模拟' in str(row[1]) for row in wb['填写说明'].values)
-        assert wb['闲置空间列表'].max_row==len(c['idle_spaces'])+1
-        from app.services.demo_completion import DEMO_MIGRATION_RATES, complete_demo_data
-        from app.database import SessionLocal
-        from app.models import Project
-        assert c['migration_rates'] == DEMO_MIGRATION_RATES
-        assert [wb['社区基本信息'].cell(row,2).value for row in range(8,16)] == list(DEMO_MIGRATION_RATES.values())
-        before=client.get(root+'/runs').json()
-        with SessionLocal() as db:
-            complete_demo_data(db, db.get(Project, project['id']))
-        assert client.get(root+'/runs').json() == before
-
-
 def test_calculation_audit_is_frozen_and_reconciles():
     with TestClient(app) as client:
         p=client.post('/api/projects',json={'name':'公式测试-'+uuid4().hex}).json()
@@ -104,7 +87,7 @@ def test_calculation_audit_is_frozen_and_reconciles():
         payload['average_household_size']=3
         client.put(root+f"/communities/{c['id']}",json=payload)
         assert client.get(url).json()==audit
-        parameters=deepcopy(DEMO_FACILITY_PARAMETERS)
+        parameters=_complete_facility_parameters()
         assert client.put(root+'/parameters/facility',json={'data':parameters}).status_code==200
         fac=client.post(root+'/predictions/facility',json={'population_run_id':run['id']})
         assert fac.status_code==200,fac.text
@@ -159,7 +142,7 @@ def test_pending_uniform_death_cannot_be_saved_and_new_horizon_runs():
             assert [r['year'] for r in rows]==[2041,2042,2043]
             for row in rows:
                 assert row['data']['calculationAudit']['deaths'][0]['死亡率（‰）']==.5
-            assert client.put(root+'/parameters/facility',json={'data':deepcopy(DEMO_FACILITY_PARAMETERS)}).status_code==200
+            assert client.put(root+'/parameters/facility',json={'data':_complete_facility_parameters()}).status_code==200
             fac=client.post(root+'/predictions/facility',json={'population_run_id':pop.json()['id'],'generate_report':True,'report_mode':'community','community_id':c['id']})
             assert fac.status_code==200,fac.text
             assert fac.json()['forecast_years']==[2041,2042,2043]
