@@ -28,8 +28,7 @@ release/
 *.exe
 *.zip
 
-# Original survey data and internal reference material
-社区数据/
+# Internal reference material
 附件/
 汇报-0919/
 

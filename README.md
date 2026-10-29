@@ -16,11 +16,10 @@ backend/       FastAPI 接口、预测服务、数据模型和测试
 frontend/      React 单页面应用及可嵌入组件
 docs/          单页面与大系统嵌入说明
 scripts/       开发启动、测试和文档生成脚本
-测试用数据/   不含姓名等身份字段的自动化测试夹具
-交付文档/     大系统嵌入接入说明
+测试数据/     匿名社区调研表及人口、设施预测参数测试文件
 ```
 
-原始社区调研表、运行数据库、工程数据、日志和构建产物不进入源码仓库。
+`测试数据/` 仅用于导入与预测验收。运行数据库、工程数据、日志和构建产物不进入源码仓库。
 
 ## 下载后快速启动（推荐）
 
@@ -86,7 +85,7 @@ pnpm --dir frontend run build
 pnpm --dir frontend run build:embed
 ```
 
-单页面与嵌入说明见 `docs/SINGLE_WORKSPACE_GUIDE.md` 和 `交付文档/完整社区预测模块嵌入大系统接入说明.docx`。
+单页面与嵌入说明见 `docs/SINGLE_WORKSPACE_GUIDE.md`。
 
 ## 融合开发建议
 

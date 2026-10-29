@@ -13,7 +13,7 @@ from docx.shared import Cm, Inches, Pt, RGBColor
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT_DIR = ROOT / "交付文档"
+OUT_DIR = ROOT / "docs"
 ASSET_DIR = ROOT / "runtime" / "embedding-guide"
 OUT_PATH = OUT_DIR / "完整社区预测模块嵌入大系统接入说明.docx"
 BLUE = "155F78"

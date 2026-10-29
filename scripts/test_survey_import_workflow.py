@@ -25,7 +25,7 @@ from app.main import app  # noqa: E402
 from workflow_sample_data import SAMPLE_FACILITY_PARAMETERS  # noqa: E402
 
 
-SOURCE = ROOT / "社区数据" / "610103-D 《社区基本信息与服务设施信息调研表》.xlsx"
+SOURCE = ROOT / "测试数据" / "610103-D 《社区基本信息与服务设施信息调研表》.xlsx"
 
 
 def main() -> None:

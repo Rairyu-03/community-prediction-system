@@ -89,7 +89,7 @@ def test_full_project_import_and_prediction_flow() -> None:
         project = project_response.json()
         project_id = project["id"]
 
-        population_file = WORKSPACE_ROOT / "测试用数据" / "PopPre_Parameters.xlsx"
+        population_file = WORKSPACE_ROOT / "测试数据" / "预测参数" / "PopPre_Parameters (3).xlsx"
         with population_file.open("rb") as stream:
             response = client.post(
                 f"/api/projects/{project_id}/parameters/population/import",
@@ -113,15 +113,15 @@ def test_full_project_import_and_prediction_flow() -> None:
         assert response.status_code == 422, response.text
         assert saved_population_file.read_bytes() == saved_population_content
 
-        facility_file = WORKSPACE_ROOT / "测试用数据" / "FacPre_Parameters.xlsx"
+        facility_file = WORKSPACE_ROOT / "测试数据" / "预测参数" / "FacPre_Parameters (1).xlsx"
         with facility_file.open("rb") as stream:
             response = client.post(
                 f"/api/projects/{project_id}/parameters/facility/import",
                 files={"file": (facility_file.name, stream, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
             )
         assert response.status_code == 200, response.text
-        assert response.json()["data"]["status"] == "incomplete"
-        assert "parking.parkingSpacesPerHousehold" in response.json()["data"]["missingRequired"]
+        assert response.json()["data"]["status"] == "ready"
+        assert response.json()["data"]["missingRequired"] == []
         response = client.get(f"/api/projects/{project_id}/parameters/facility/template")
         assert response.status_code == 200
         assert response.content.startswith(b"PK")
@@ -133,7 +133,7 @@ def test_full_project_import_and_prediction_flow() -> None:
         assert [cell.value for cell in community_template["社区人口列表"][1]] == ["序号", "性别", "出生年份", "年龄"]
         community_template.close()
 
-        community_file = WORKSPACE_ROOT / "测试用数据" / "105201-A安乐社区.xlsx"
+        community_file = WORKSPACE_ROOT / "测试数据" / "610103-D 《社区基本信息与服务设施信息调研表》.xlsx"
         with community_file.open("rb") as stream:
             response = client.post(
                 f"/api/projects/{project_id}/communities/import",
@@ -148,7 +148,8 @@ def test_full_project_import_and_prediction_flow() -> None:
         assert import_report["issues"] == []
         community = import_report["community"]
         assert community["code"]
-        assert community["facilities"]["停车充电设施"]["机动车充电桩数量（个）"] == 79
+        assert community["facilities"]["停车充电设施"]["停车位数量（个）"] == 1318
+        assert len(community["facilities"]["机动车充电桩列表"]) == 3
 
         with community_file.open("rb") as stream:
             response = client.post(
@@ -224,8 +225,8 @@ def test_full_project_import_and_prediction_flow() -> None:
         first_result_data = response.json()[0]["data"]
         assert first_result_data["siteSuggestions"]["助餐设施"]
         assert first_result_data["siteAnalysis"]["助餐设施"]["targetYear"] == 2027
-        assert first_result_data["siteAnalysis"]["助餐设施"]["candidateCount"] >= 1
-        assert "覆盖率" in first_result_data["siteSuggestions"]["助餐设施"]
+        assert first_result_data["siteAnalysis"]["助餐设施"]["candidateCount"] == len(community["idle_spaces"])
+        assert "未录入闲置空间" in first_result_data["siteSuggestions"]["助餐设施"]
         assert list(Path(project["path"]).glob(f"output/PreReport_run{facility_run['id']}_整体_*.docx"))
         response = client.get(f"/api/runs/{facility_run['id']}/report")
         assert response.status_code == 200
@@ -468,23 +469,24 @@ def test_community_details_timestamps_and_project_history_clear():
             client.delete(base)
 
 
-def test_uploaded_anle_workbook_preserves_population_and_all_sections():
+def test_uploaded_survey_workbook_preserves_population_and_all_sections():
     with TestClient(app) as client:
         project=client.post("/api/projects",json={"name":f"八项导入-{uuid4().hex[:8]}"}).json()
         base=f"/api/projects/{project['id']}"
         try:
-            with (WORKSPACE_ROOT/"测试用数据"/"105201-A安乐社区.xlsx").open("rb") as stream:
-                response=client.post(base+"/communities/import",files={"file":("105201-A安乐社区.xlsx",stream,"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+            survey_file=WORKSPACE_ROOT/"测试数据"/"复兴社区调研数据.xlsx"
+            with survey_file.open("rb") as stream:
+                response=client.post(base+"/communities/import",files={"file":(survey_file.name,stream,"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
             assert response.status_code==200,response.text
             report=response.json()
             assert report["success_count"]==1,report
             community=report["community"]
-            assert community["name"]=="庆有西里社区"  # workbook content, not filename
+            assert community["name"]=="复兴社区"
             assert community["population_base_year"]==2026
             assert len(community["population_records"])==sum(community["age_counts"].values())
-            assert len(community["population_records"])>10000
-            assert len(community["idle_spaces"])==2
-            assert len(community["facilities"]["机动车充电桩列表"])==1
+            assert len(community["population_records"])==20000
+            assert len(community["idle_spaces"])==0
+            assert len(community["facilities"]["机动车充电桩列表"])==8
             assert {"助餐设施","养老设施","托育设施","停车充电设施"} <= community["facilities"].keys()
         finally:
             client.delete(base)

@@ -74,7 +74,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="1.0.1",
+    version="1.0.2",
     description="完整社区设施需求预测与动态匹配模块 API",
     lifespan=lifespan,
 )
@@ -131,7 +131,7 @@ def get_parameter_or_404(db: Session, project_id: int, kind: str) -> ParameterSe
 
 @app.get(f"{settings.api_prefix}/health")
 def health() -> dict[str, Any]:
-    return {"status": "ok", "service": "community-prediction", "version": "1.0.1", "buildId": build_id}
+    return {"status": "ok", "service": "community-prediction", "version": "1.0.2", "buildId": build_id}
 
 
 @app.post(f"{settings.api_prefix}/client-errors", include_in_schema=False)
