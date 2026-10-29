@@ -96,73 +96,101 @@ function PredictionRunPanel({
 }
 
 function CommunityDataInputPage({
-  communities, exportHref,
+  templateHref,
   dashboard,
   regions,
   baseYear,
   onDirtyChange,
   readOnly = false,
   onCreate,
+  onPreview,
   onImport,
 }: {
-  communities: Community[];
-  exportHref: (communityId:number)=>string;
+  templateHref: string;
   dashboard: Dashboard;
   readOnly?: boolean;
   regions: string[];
   baseYear: number;
   onDirtyChange: (dirty: boolean) => void;
   onCreate: (payload: Partial<Community>) => Promise<boolean>;
+  onPreview: (file: File) => Promise<CommunityImportReport>;
   onImport: (file: File) => Promise<CommunityImportReport>;
 }) {
-  const [exportId,setExportId]=useState(communities[0]?.id || 0);
-  const selectedExportId=communities.some(c=>c.id===exportId)?exportId:communities[0]?.id;
   const [showCreate, setShowCreate] = useState(false);
   const [localDirty, setLocalDirty] = useState(false);
   const draftChanged = useCallback((dirty: boolean) => { setLocalDirty(dirty); onDirtyChange(dirty); }, [onDirtyChange]);
+  const [showImport, setShowImport] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [importReport, setImportReport] = useState<CommunityImportReport | null>(null);
+  const [importItems, setImportItems] = useState<Array<{file: File; report: CommunityImportReport}>>([]);
   const maxRegion = Math.max(1, ...Object.values(dashboard.regions));
+  const recognized = importItems.filter(item => item.report.success_count > 0);
+  const unrecognized = importItems.filter(item => item.report.success_count === 0);
+  const closeImport = () => {
+    if (recognized.length && !window.confirm("关闭后，本次已识别的数据不会保存。确认关闭？")) return;
+    setShowImport(false);
+    setImportItems([]);
+  };
+  const previewFiles = async (files: File[]) => {
+    if (!files.length) return;
+    setImporting(true);
+    try {
+      const next: Array<{file: File; report: CommunityImportReport}> = [];
+      for (const file of files) next.push({file, report: await onPreview(file)});
+      setImportItems(next);
+    } finally {
+      setImporting(false);
+    }
+  };
+  const completeImport = async () => {
+    if (importing || !recognized.length) return;
+    const duplicateIndexes = new Set<number>();
+    recognized.forEach((item, index) => {
+      if (recognized.findIndex(other => other.report.community_code === item.report.community_code || other.report.community_name === item.report.community_name) !== index) duplicateIndexes.add(index);
+    });
+    const overwrites = recognized.filter((item,index) => item.report.updated_count > 0 || duplicateIndexes.has(index));
+    if (overwrites.length && !window.confirm(`以下社区将覆盖已有或本批次同名数据：\n${overwrites.map(item => `${item.report.community_code} · ${item.report.community_name}`).join("\n")}\n\n是否继续？`)) return;
+    setImporting(true);
+    try {
+      const reports: CommunityImportReport[] = [];
+      for (const item of recognized) reports.push(await onImport(item.file));
+      const failures = reports.filter(report => !report.success_count);
+      if (failures.length) {
+        setImportItems(recognized.map((item, index) => ({...item, report: reports[index]})));
+        return;
+      }
+      setShowImport(false);
+      setImportItems([]);
+    } finally {
+      setImporting(false);
+    }
+  };
   return (
     <div className="page-stack">
       <section className="community-input-card">
         <div className="section-header community-toolbar">
           <div className="actions">
-            {communities.length > 1 && <label>选择社区<select aria-label="下载社区现状数据的社区" value={selectedExportId} onChange={e=>setExportId(Number(e.target.value))}>{communities.map(c=><option value={c.id} key={c.id}>{c.code} · {c.name}</option>)}</select></label>}
-            {selectedExportId ? <button type="button" className="secondary-button" onClick={() => void downloadFile(exportHref(selectedExportId)).catch(error => window.alert(error instanceof Error ? error.message : "下载失败"))}>下载社区现状数据</button> : <button className="secondary-button" disabled title="请先新建或导入社区并保存数据">下载社区现状数据</button>}
-            <label className={`secondary-button file-button ${importing ? "disabled" : ""}`}>{importing ? "正在校验…" : "导入社区 Excel"}<input type="file" accept=".xlsx" disabled={importing || readOnly} onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) {
-                setImporting(true);
-                void onImport(file).then(setImportReport).finally(() => setImporting(false));
-              }
-              event.currentTarget.value = "";
-            }} /></label>
+            <button type="button" className="secondary-button" disabled={readOnly} onClick={() => { setImportItems([]); setShowImport(true); }}>批量导入社区</button>
             <button disabled={readOnly} className="primary-button" onClick={() => { if (!showCreate || !localDirty || window.confirm("放弃尚未保存的新社区？")) setShowCreate((value) => !value); }}>{showCreate ? "取消新建" : "新建社区"}</button>
           </div>
         </div>
         {showCreate && <CommunityEditor onDirtyChange={draftChanged} regions={regions} baseYear={baseYear} onSave={onCreate} onCancel={() => setShowCreate(false)} />}
-
       </section>
-      {importReport && <section className="content-card import-report-card" aria-live="polite">
-        <div className="section-header import-report-header">
-          <div><h2>社区导入报告</h2><p>文件：{importReport.filename}</p></div>
-          <button className="report-close" aria-label="关闭导入报告" onClick={() => setImportReport(null)}>×</button>
-        </div>
-        <div className="import-summary">
-          <article className="success"><span>成功</span><strong>{importReport.success_count}</strong><small>个文件</small></article>
-          <article className="updated"><span>更新</span><strong>{importReport.updated_count}</strong><small>个社区</small></article>
-          <article className="failed"><span>失败</span><strong>{importReport.failed_count}</strong><small>个文件</small></article>
-          <article className="issues"><span>异常字段</span><strong>{importReport.issues.length}</strong><small>处</small></article>
-        </div>
-        {importReport.warnings?.map((warning, index) => <p key={index} className="inline-error">{warning}</p>)}
-        {importReport.issues.length === 0 ? <div className="import-report-success">校验通过，{importReport.created_count ? "已新建社区" : "已更新同编号社区"}。</div> : <div className="import-issues-table">
-          <div className="import-issues-head"><span>工作表</span><span>行号</span><span>字段</span><span>异常值</span><span>原因</span></div>
-          {importReport.issues.map((issue, index) => <div className="import-issues-row" key={`${issue.sheet}-${issue.row}-${issue.field}-${index}`}>
-            <span>{issue.sheet || "—"}</span><span>{issue.row || "—"}</span><strong>{issue.field}</strong><code>{issue.value === undefined || issue.value === null || issue.value === "" ? "空值" : String(issue.value)}</code><span>{issue.message}</span>
-          </div>)}
-        </div>}
-      </section>}
+      {showImport && <div className="dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !importing) closeImport(); }}>
+        <section className="community-import-dialog" role="dialog" aria-modal="true" aria-labelledby="community-import-title">
+          <div className="community-import-heading"><h2 id="community-import-title">批量导入社区</h2></div>
+          <div className="community-import-actions">
+            <button type="button" className="secondary-button" onClick={() => void downloadFile(templateHref).catch(error => window.alert(error instanceof Error ? error.message : "模板下载失败"))}>模板下载</button>
+            <label className={`primary-button file-button ${importing ? "disabled" : ""}`}>{importing ? "正在解析…" : "批量导入"}<input type="file" accept=".xlsx" multiple disabled={importing} onChange={event => { const files = Array.from(event.target.files || []); event.currentTarget.value=""; void previewFiles(files); }} /></label>
+          </div>
+          <div className="community-import-detail" aria-live="polite">
+            <h3>导入详情</h3>
+            {!importItems.length && !importing && <div className="empty-state compact">请选择一个或多个社区 Excel 文件</div>}
+            {recognized.length > 0 && <div className="import-result-group success"><strong>成功识别社区 <b>{recognized.length}</b></strong>{recognized.map(item => <span key={`${item.file.name}-${item.report.community_code}`}>{item.report.community_code} · {item.report.community_name}{item.report.updated_count ? "（将覆盖）" : ""}</span>)}</div>}
+            {unrecognized.length > 0 && <div className="import-result-group failed"><strong>未识别社区 <b>{unrecognized.length}</b></strong>{unrecognized.map(item => <span key={item.file.name}>{item.file.name}：{item.report.issues[0]?.message || "文件无法识别"}</span>)}</div>}
+          </div>
+          <div className="community-import-footer"><button type="button" className="primary-button" disabled={importing || recognized.length === 0} onClick={() => void completeImport()}>{importing ? "处理中…" : "完成"}</button><button type="button" className="secondary-button" disabled={importing} onClick={closeImport}>关闭</button></div>
+        </section>
+      </div>}
       <section className="metric-grid">
         <article><span>社区总数</span><strong>{dashboard.community_count}</strong><small>个社区</small></article>
         <article><span>社区总户数</span><strong>{dashboard.total_households.toLocaleString()}</strong><small>户</small></article>
@@ -188,9 +216,11 @@ function CommunityDataInputPage({
 function CommunitiesPage({
   communities,
   onOpen,
+  onDelete,
 }: {
   communities: Community[];
   onOpen: (community: Community, tab?: string) => void;
+  onDelete: (community: Community) => Promise<void>;
 }) {
   return (
     <div className="page-stack">
@@ -202,7 +232,7 @@ function CommunitiesPage({
               <article className="community-item" key={community.id}>
                 <div className="community-card-heading">
                   <div className="community-main"><button className="chart-action" onClick={() => onOpen(community)}>{community.name}</button><span>{community.region} · {community.households.toLocaleString()} 户 · {population.toLocaleString()} 人</span></div>
-                  <span className="community-code">{community.code}</span>
+                  <div className="community-card-controls"><span className="community-code">{community.code}</span><button type="button" className="danger-button community-delete" onClick={() => void onDelete(community)}>删除</button></div>
                 </div>
                 <div className="community-quick-actions">{["社区基础信息","社区设施信息","社区闲置空间信息","社区人口列表","预测结果"].map((tab,index)=><button className="secondary-button" key={tab} onClick={()=>onOpen(community,tab)}><span className="community-action-icon" aria-hidden="true">{["档","设","空","人","图"][index]}</span>{tab.replace("社区","")}<span aria-hidden="true">→</span></button>)}</div>
               </article>
@@ -913,6 +943,30 @@ export function CommunityPredictionModule({
     }
   };
 
+  const previewCommunityImport = async (file: File): Promise<CommunityImportReport> => {
+    if (!activeProjectId) {
+      return { filename: file.name, total_count: 1, success_count: 0, created_count: 0, updated_count: 0, failed_count: 1, issues: [{ field: "工程", message: "当前没有可用工程" }] };
+    }
+    try {
+      return await api.previewCommunityImport(activeProjectId, file);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "文件解析失败";
+      return { filename: file.name, total_count: 1, success_count: 0, created_count: 0, updated_count: 0, failed_count: 1, issues: [{ field: "文件", message }] };
+    }
+  };
+
+  const deleteCommunity = async (community: Community) => {
+    if (!activeProjectId || !window.confirm(`确认删除社区“${community.name}”（${community.code}）？`)) return;
+    const targetProjectId = activeProjectId;
+    try {
+      await api.deleteCommunity(targetProjectId, community.id);
+      if (activeProjectIdRef.current === targetProjectId) await refreshProjectData(targetProjectId);
+      showToast("社区已删除");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "社区删除失败", true);
+    }
+  };
+
   const searchCommunities = (query: string) => {
     setCommunitySearchQuery(query);
     if (!activeProjectId) return;
@@ -990,11 +1044,11 @@ export function CommunityPredictionModule({
           ] as Array<[Page,string,string]>).map(([target,title,status],i)=><button className={page===target?"active":""} key={target} onClick={()=>navigatePage(target)}><b>{i+1}</b><span><strong>{title}</strong></span><em>{status}</em></button>)}</nav>
 
           {page === "communities" && !selectedCommunity && <div className="page-tools"><input className="search-input page-search" aria-label="搜索社区" placeholder="搜索社区编号、名称或地区" value={communitySearchQuery} onChange={(event) => searchCommunities(event.target.value)} /></div>}
-          {page === "dashboard" && <CommunityDataInputPage communities={allCommunities} exportHref={id=>api.communityTemplateUrl(activeProject.id,id)} readOnly={false} onDirtyChange={setEditorDirty} key={activeProject.id} regions={communityRegions} baseYear={populationBaseYear} dashboard={dashboard} onCreate={createCommunity} onImport={importCommunity} />}
+          {page === "dashboard" && <CommunityDataInputPage templateHref={api.communityTemplateUrl(activeProject.id, undefined, true)} readOnly={false} onDirtyChange={setEditorDirty} key={activeProject.id} regions={communityRegions} baseYear={populationBaseYear} dashboard={dashboard} onCreate={createCommunity} onPreview={previewCommunityImport} onImport={importCommunity} />}
           {page === "projects" && <ProjectsPage projects={projects} activeProjectId={activeProject.id} onCreate={create} onSelect={selectProject} onRename={renameProject} onDelete={deleteProject} exportUrl={id=>api.projectExportUrl(id)} systemBackupUrl={api.systemBackupUrl()} onImport={importProjectArchive} onRestore={restoreSystemBackup} />}
           {page === "population" && <div className="page-stack"><PopulationParameterForm readOnly={false} onDraftChange={(data) => changeDraft("population", data)} value={parameters.population} templateHref={api.parameterTemplateUrl(activeProject.id, "population")} onSave={(data) => saveParameters("population", data)} onImport={(file) => importParameters("population", file)} /><PredictionRunPanel readOnly={false} kind="population" busy={busy} communityCount={dashboard.community_count} runCount={runs.filter((run) => run.kind === "population").length} quality={quality?.kind==="population"?quality:null} onFix={fixQualityIssue} onRun={() => void runPrediction("population")} /></div>}
           {page === "facility" && <div className="page-stack"><FacilityParameterForm readOnly={false} key={activeProject.id} populationParameters={drafts.current[activeProject.id]?.population || parameters.population?.data || populationRange} onDraftChange={(data) => changeDraft("facility", data)} value={parameters.facility} templateHref={api.parameterTemplateUrl(activeProject.id, "facility")} onSave={(data) => saveParameters("facility", data)} onImport={(file) => importParameters("facility", file)} /><PredictionRunPanel readOnly={false} kind="facility" busy={busy} communityCount={dashboard.community_count} runCount={runs.filter((run) => run.kind === "facility").length} populationReady={runs.some((run) => run.kind === "population" && run.status === "success")} quality={quality?.kind==="facility"?quality:null} onFix={fixQualityIssue} onRun={() => void runPrediction("facility")} /></div>}
-          {page === "communities" && (selectedCommunity ? <CommunityEditor exportHref={api.communityTemplateUrl(activeProject.id,selectedCommunity.id)} readOnly={false} initialTab={selectedCommunityTab} onDirtyChange={setEditorDirty} key={selectedCommunity.id} community={selectedCommunity} regions={communityRegions} baseYear={populationBaseYear} onSave={updateCommunity} onCancel={() => setSelectedCommunity(null)} hasResults={runs.some(run => run.status === "success" && run.community_ids?.includes(selectedCommunity.id))} results={<ResultsPage communities={communities} readOnly={false} runs={runs.filter(run => run.community_ids?.includes(selectedCommunity.id))} api={api} onDeleteRun={deletePredictionRun} communityFilterId={selectedCommunity.id} onReportGenerated={async()=>{await refreshProjectData(activeProject.id);}} />} /> : <CommunitiesPage communities={communities} onOpen={(community,tab)=>{if(tab==="预测结果" && !runs.some(r=>r.status==="success" && r.community_ids?.includes(community.id))){showToast("该社区尚无成功预测，请先执行预测。",true);return;}setSelectedCommunityTab(tab || "社区基础信息");setSelectedCommunity(community);}} />)}
+          {page === "communities" && (selectedCommunity ? <CommunityEditor exportHref={api.communityTemplateUrl(activeProject.id,selectedCommunity.id)} readOnly={false} initialTab={selectedCommunityTab} onDirtyChange={setEditorDirty} key={selectedCommunity.id} community={selectedCommunity} regions={communityRegions} baseYear={populationBaseYear} onSave={updateCommunity} onCancel={() => setSelectedCommunity(null)} hasResults={runs.some(run => run.status === "success" && run.community_ids?.includes(selectedCommunity.id))} results={<ResultsPage communities={communities} readOnly={false} runs={runs.filter(run => run.community_ids?.includes(selectedCommunity.id))} api={api} onDeleteRun={deletePredictionRun} communityFilterId={selectedCommunity.id} onReportGenerated={async()=>{await refreshProjectData(activeProject.id);}} />} /> : <CommunitiesPage communities={communities} onDelete={deleteCommunity} onOpen={(community,tab)=>{if(tab==="预测结果" && !runs.some(r=>r.status==="success" && r.community_ids?.includes(community.id))){showToast("该社区尚无成功预测，请先执行预测。",true);return;}setSelectedCommunityTab(tab || "社区基础信息");setSelectedCommunity(community);}} />)}
           {page === "results" && <ResultsPage communities={allCommunities} readOnly={false} key={activeProject.id} runs={runs} api={api} onDeleteRun={deletePredictionRun} onClear={clearHistory} onReportGenerated={async()=>{await refreshProjectData(activeProject.id);}} />}
         </main>
       </div>

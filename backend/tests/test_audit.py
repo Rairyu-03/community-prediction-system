@@ -7,6 +7,8 @@ from pydantic import ValidationError
 from app.defaults import DEFAULT_POPULATION_PARAMETERS, DEFAULT_FACILITY_PARAMETERS
 from app.schemas import CommunityCreate, ProjectCreate
 from app.services.prediction_service import advance_population
+from app.services.community_service import _cap_stored_population
+from app.models import Community
 from app.services.validation_service import validate_parameters
 
 
@@ -18,7 +20,7 @@ def test_invalid_project_name(name):
 
 @pytest.mark.parametrize("fields", [
     {"age_counts": {"20": -1}},
-    {"age_counts": {"121": 1}},
+    {"age_counts": {"101": 1}},
     {"age_counts": {"20": 1, "0-3岁": 1}},
     {"migration_rates": {"0-3岁": 1001}},
     {"migration_rates": {"0-3岁": float("nan")}},
@@ -49,15 +51,30 @@ def test_invalid_facility_parameters(field, value):
 
 
 def test_ageing_preserves_oldest_population():
-    counts = [0] * 121
-    counts[119], counts[120] = 3, 7
+    counts = [0] * 101
+    counts[99], counts[100] = 3, 7
     result = advance_population(counts, 2, {}, random.Random(1))
-    assert result[120] == 10
+    assert result[100] == 10
     assert sum(result) == 12
 
 
+def test_old_population_records_are_capped_at_age_100():
+    community = Community(
+        project_id=1,
+        code="OLD",
+        name="旧数据",
+        population_base_year=2026,
+        age_counts={"103": 1, "100": 2},
+        population_records=[{"序号": 1, "性别": "女", "出生年份": 1923, "年龄": 103}],
+    )
+    _cap_stored_population(community)
+    assert community.population_records[0]["年龄"] == 100
+    assert community.population_records[0]["出生年份"] == 1926
+    assert community.age_counts == {"100": 1}
+
+
 def test_mortality_uses_previous_cohort_not_newborns():
-    counts = [0] * 121
+    counts = [0] * 101
     counts[4] = 10
     result = advance_population(counts, 5, {"0-4岁": 1000}, random.Random(1))
     assert result[0] == 5

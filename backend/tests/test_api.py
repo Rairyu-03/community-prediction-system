@@ -584,6 +584,8 @@ def test_survey_age_summary_is_used_when_resident_rows_are_blank():
         (15, "60-69岁（单位：人）", 632),
         (16, "70-79岁（单位：人）", 206),
         (17, "80岁以上（单位：人）", 82),
+        (18, "男性人口数量（单位：人）", 3986),
+        (19, "女性人口数量（单位：人）", 4530),
     )
     for row, label, value in values:
         main.cell(row, 4, label)
@@ -610,18 +612,79 @@ def test_survey_age_summary_is_used_when_resident_rows_are_blank():
             assert response.status_code == 200, response.text
             report = response.json()
             community = report["community"]
-            assert community["population_records"] == []
-            assert community["age_counts"] == {
-                "0-3岁": 186,
-                "4-6岁": 139,
-                "7-12岁": 583,
-                "13-17岁": 437,
-                "18-59岁": 6251,
-                "60-69岁": 632,
-                "70-79岁": 206,
-                "80岁以上": 82,
-            }
+            assert len(community["population_records"]) == 8516
+            assert sum(row["性别"] == "男" for row in community["population_records"]) == 4363
+            assert sum(row["性别"] == "女" for row in community["population_records"]) == 4153
+            assert max(row["年龄"] for row in community["population_records"]) == 100
+            assert all(row["出生年份"] + row["年龄"] == 2026 for row in community["population_records"])
+            assert all(key.isdigit() for key in community["age_counts"])
             assert sum(community["age_counts"].values()) == 8516
-            assert any("年龄段汇总" in warning for warning in report["warnings"])
+            assert sum(community["age_counts"].get(str(age), 0) for age in range(0, 7)) == 325
+            assert sum(community["age_counts"].get(str(age), 0) for age in range(18, 36)) == 2536
+            assert sum(community["age_counts"].get(str(age), 0) for age in range(36, 60)) == 3715
+            assert max(community["age_counts"].get(str(age), 0) for age in range(18, 36)) - min(community["age_counts"].get(str(age), 0) for age in range(18, 36)) <= 1
+            assert not any("非实名模拟人口" in warning for warning in report["warnings"])
+            assert not any("已识别为综合调研表" in warning for warning in report["warnings"])
+        finally:
+            client.delete(base)
+
+
+def test_survey_import_tolerates_shifted_columns_fuzzy_sheet_names_and_empty_fill_style():
+    workbook = Workbook()
+    main = workbook.active
+    main.title = "社区基本信息及服务设施调研"
+    main.cell(1, 1, "社区基本信息与服务设施调研表")
+    main.cell(3, 1, "填写时间：2026年10月")
+    main.cell(4, 2, "信息数据")
+    main.cell(4, 3, "指标值")
+    for row, label, value in (
+        (5, "省级行政区", "安徽省"),
+        (6, "社区编号", "340100-Z"),
+        (7, "社区名称", "弹性格式社区"),
+        (8, "社区总户数（单位：户）", 40),
+        (9, "常住人口数量（单位：人）", 101),
+    ):
+        main.cell(row, 2, label)
+        main.cell(row, 3, value)
+
+    population = workbook.create_sheet("居民人口性别出生年龄")
+    population.append(["说明"])
+    population.append(["序号", "性别", "出生年份", "年龄"])
+    population.append([1, None, None, None])
+    chargers = workbook.create_sheet("3.2 停车及充电设施")
+    chargers.append([])
+    chargers.append([])
+    chargers.append(["设施编号", "类型", "经度", "纬度"])
+    chargers.append(["340100-Z-3.2-1", "机动车充电桩", "117.1234°E", "31.5678°N"])
+
+    original = BytesIO()
+    workbook.save(original)
+    malformed = BytesIO()
+    with ZipFile(BytesIO(original.getvalue())) as source, ZipFile(malformed, "w") as target:
+        for item in source.infolist():
+            content = source.read(item.filename)
+            if item.filename == "xl/styles.xml":
+                content = content.replace(b"</fills>", b"<fill/></fills>")
+            target.writestr(item, content)
+    malformed.seek(0)
+
+    with TestClient(app) as client:
+        project = client.post("/api/projects", json={"name": f"弹性调研表-{uuid4().hex[:8]}"}).json()
+        base = f"/api/projects/{project['id']}"
+        try:
+            response = client.post(
+                base + "/communities/import",
+                files={"file": ("弹性格式.xlsx", malformed, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+            )
+            assert response.status_code == 200, response.text
+            report = response.json()
+            assert report["success_count"] == 1, report
+            community = report["community"]
+            assert community["code"] == "340100-Z"
+            assert sum(community["age_counts"].values()) == 101
+            assert len(community["population_records"]) == 101
+            assert {row["年龄"] for row in community["population_records"]} == set(range(101))
+            assert community["facilities"]["机动车充电桩列表"][0]["经度"] == pytest.approx(117.1234)
+            assert community["facilities"]["机动车充电桩列表"][0]["纬度"] == pytest.approx(31.5678)
         finally:
             client.delete(base)

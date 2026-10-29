@@ -2,7 +2,8 @@
 from math import isfinite
 from typing import Any
 
-from ..defaults import REQUIRED_FACILITY_PATHS, MORTALITY_GROUPS
+from ..defaults import REQUIRED_FACILITY_PATHS
+from .age_distribution import validate_age_band_partition
 
 
 def finite_number(value: Any, label: str, minimum: float = 0, maximum: float | None = None) -> float:
@@ -40,9 +41,9 @@ def validate_parameters(kind: str, data: dict) -> None:
                 for key, value in series.items():
                     if field == "birthRates" and (not str(key).isdigit() or not 1900 <= int(key) <= 9999):
                         raise ValueError(f"出生率年份无效：{key}")
-                    if field == "deathRates" and key not in MORTALITY_GROUPS:
-                        raise ValueError(f"死亡率年龄段无效：{key}")
                     finite_number(value, f"{field}.{group}.{key}", 0, 1000)
+                if field == "deathRates":
+                    validate_age_band_partition(series, field=f"{group}年死亡率年龄段")
     else:
         for path in REQUIRED_FACILITY_PATHS:
             current: Any = data

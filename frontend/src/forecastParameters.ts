@@ -1,14 +1,20 @@
 export type ParameterData = Record<string, unknown>;
 export const MORTALITY_GROUPS = ["0-4岁", "5-9岁", "10-14岁", "15-19岁", "20-24岁", "25-29岁", "30-34岁", "35-39岁", "40-44岁", "45-49岁", "50-54岁", "55-59岁", "60-64岁", "65-69岁", "70-74岁", "75-79岁", "80-84岁", "85-89岁", "90-94岁", "95-99岁", "100岁及以上"];
 
+export function mortalityGroups(deathRates: Record<string, Record<string, unknown>>): string[] {
+  const imported = Object.values(deathRates).find(row => row && Object.keys(row).length);
+  return imported ? Object.keys(imported) : MORTALITY_GROUPS;
+}
+
 export function populationParameterIssues(data: ParameterData): string[] {
   if (data._pendingUniformDeath) return ["统一死亡率尚未应用，请先确认应用或取消统一编辑"];
   const years = forecastYears(data.startYear, data.duration);
   if (!years.length) return ["请设置有效的人口预测基准年和时长"];
   const birth = (data.birthRates || {}) as Record<string, Record<string, unknown>>;
   const death = (data.deathRates || {}) as Record<string, Record<string, unknown>>;
+  const groups = mortalityGroups(death);
   if (!Object.keys(birth).length) return ["请配置出生率参考地区"];
-  const missing = years.filter(year=>Object.values(birth).some(row=>!validRate(row[year])) || MORTALITY_GROUPS.some(group=>!validRate(death[year]?.[group])));
+  const missing = years.filter(year=>Object.values(birth).some(row=>!validRate(row[year])) || groups.some(group=>!validRate(death[year]?.[group])));
   return missing.length ? [`${missing.join("、")}年人口参数不完整，请在人口参数页填写或确认补齐后再预测`] : [];
 }
 

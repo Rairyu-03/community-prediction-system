@@ -4,8 +4,11 @@ import re
 import math
 from collections import Counter
 from copy import copy
+from io import BytesIO
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree as ET
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from openpyxl import Workbook, load_workbook
 
@@ -16,10 +19,58 @@ from ..defaults import (
     MORTALITY_GROUPS,
     REQUIRED_FACILITY_PATHS,
 )
+from .age_distribution import MAX_AGE, distribute_age_bands_uniformly, simulate_population_records, validate_age_band_partition
+
+
+_SPREADSHEET_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+
+
+def _repair_invalid_excel_fills(content: bytes) -> bytes:
+    """Repair empty OOXML fill records that Excel/WPS accepts but openpyxl rejects.
+
+    The source upload is never changed.  Empty ``<fill/>`` entries are kept at
+    the same index and converted to a neutral pattern fill, so existing style
+    references remain valid.
+    """
+    source = BytesIO(content)
+    with ZipFile(source) as archive:
+        if "xl/styles.xml" not in archive.namelist():
+            return content
+        styles = ET.fromstring(archive.read("xl/styles.xml"))
+        fills = styles.find(f"{{{_SPREADSHEET_NS}}}fills")
+        if fills is None:
+            return content
+        changed = False
+        for fill in fills.findall(f"{{{_SPREADSHEET_NS}}}fill"):
+            children = list(fill)
+            if children and children[0].tag.rsplit("}", 1)[-1] in {"patternFill", "gradientFill"}:
+                continue
+            fill.clear()
+            ET.SubElement(fill, f"{{{_SPREADSHEET_NS}}}patternFill", {"patternType": "none"})
+            changed = True
+        if not changed:
+            return content
+        repaired_styles = ET.tostring(styles, encoding="utf-8", xml_declaration=True)
+        target = BytesIO()
+        with ZipFile(target, "w", ZIP_DEFLATED) as output:
+            output.comment = archive.comment
+            for item in archive.infolist():
+                output.writestr(item, repaired_styles if item.filename == "xl/styles.xml" else archive.read(item.filename))
+        return target.getvalue()
+
+
+def _load_workbook(path: Path, **kwargs):
+    """Open user workbooks through a non-destructive OOXML compatibility layer."""
+    content = Path(path).read_bytes()
+    return load_workbook(BytesIO(_repair_invalid_excel_fills(content)), **kwargs)
 
 
 def clean_text(value: Any) -> str:
-    return str(value or "").replace("\u200b", "").replace("\u200c", "").strip()
+    return str(value or "").replace("\u200b", "").replace("\u200c", "").replace("\ufeff", "").strip()
+
+
+def _compact_text(value: Any) -> str:
+    return re.sub(r"[\s\u3000]+", "", clean_text(value)).replace("（", "(").replace("）", ")")
 
 
 def _key_value_sheet(workbook, sheet_name: str) -> dict[str, Any]:
@@ -27,6 +78,15 @@ def _key_value_sheet(workbook, sheet_name: str) -> dict[str, Any]:
         raise ValueError(f"缺少工作表：{sheet_name}")
     sheet = workbook[sheet_name]
     return {clean_text(row[0].value): row[1].value for row in sheet.iter_rows(min_row=2) if clean_text(row[0].value)}
+
+
+def _migration_rate_fields(group: str) -> list[str]:
+    return [
+        f"社区{group}常住人口复合年均净迁入率（‰）",
+        f"社区{group}常住人口年均净迁入率（‰）",
+        f"社区{group}常住人口复合年均净迁入率（%）",
+        f"社区{group}常住人口年均净迁入率（%）",
+    ]
 
 
 def _reject_percentage_cells(workbook, sheet_names):
@@ -41,7 +101,7 @@ def _reject_percentage_cells(workbook, sheet_names):
 
 
 def parse_population_parameters(path: Path) -> dict[str, Any]:
-    workbook = load_workbook(path, data_only=True, read_only=True)
+    workbook = _load_workbook(path, data_only=True, read_only=True)
     for required in ("基础参数", "出生率", "死亡率"):
         if required not in workbook.sheetnames:
             raise ValueError(f"人口参数文件缺少工作表：{required}")
@@ -93,9 +153,7 @@ def parse_population_parameters(path: Path) -> dict[str, Any]:
     death_headers = [re.sub(r"死亡率.*$", "", item).strip("（）() ") for item in raw_headers[1:]]
     if "6-9岁" in death_headers:
         death_headers[death_headers.index("6-9岁")] = "5-9岁"
-    missing_groups = [group for group in MORTALITY_GROUPS if group not in death_headers]
-    if missing_groups:
-        raise ValueError(f"死亡率年龄段不完整：{', '.join(missing_groups)}")
+    validate_age_band_partition(death_headers, field="死亡率年龄段")
     death_rates: dict[str, dict[str, float]] = {}
     for row in death_sheet.iter_rows(min_row=2, values_only=True):
         if row[0] is None:
@@ -215,7 +273,7 @@ def finalize_facility_parameters(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def parse_facility_parameters(path: Path) -> dict[str, Any]:
-    workbook = load_workbook(path, data_only=True, read_only=True)
+    workbook = _load_workbook(path, data_only=True, read_only=True)
     result: dict[str, Any] = {"status": "imported", "raw": {}, "references": {}}
     for sheet_name, key in FACILITY_SHEET_MAPPING.items():
         if sheet_name not in workbook.sheetnames:
@@ -263,8 +321,8 @@ def _age_counts_from_population_sheet(workbook) -> dict[str, int]:
     counter: Counter[int] = Counter()
     for row in sheet.iter_rows(min_row=2, values_only=True):
         if age_index < len(row) and row[age_index] is not None:
-            counter[max(0, min(120, int(row[age_index])))] += 1
-    return {str(age): counter.get(age, 0) for age in range(121)}
+            counter[max(0, min(MAX_AGE, int(row[age_index])))] += 1
+    return {str(age): counter.get(age, 0) for age in range(MAX_AGE + 1)}
 
 
 def _read_age_summary(workbook) -> dict[str, int]:
@@ -276,7 +334,7 @@ def _read_age_summary(workbook) -> dict[str, int]:
             continue
         key = clean_text(row[0])
         count = float(row[1])
-        if not (key in AGE_GROUPS or key.isdigit() and 0 <= int(key) <= 120) or not math.isfinite(count) or count < 0 or not count.is_integer():
+        if not (key in AGE_GROUPS or key.isdigit() and 0 <= int(key) <= MAX_AGE) or not math.isfinite(count) or count < 0 or not count.is_integer():
             raise ValueError("人口年龄汇总的年龄或人数无效")
         if key in result:
             raise ValueError("人口年龄汇总存在重复年龄")
@@ -291,39 +349,82 @@ SURVEY_POPULATION_SHEET_PREFIX = "7.2 社区人口性别和出生年月统计"
 
 
 def _sheet_by_clean_name(workbook, expected: str, *, prefix: bool = False):
+    expected_name = _compact_text(expected)
     for sheet in workbook.worksheets:
-        title = clean_text(sheet.title)
-        matches = title.startswith(expected) if prefix else title == expected
+        title = _compact_text(sheet.title)
+        matches = title.startswith(expected_name) if prefix else title == expected_name
         if matches:
             return sheet
     return None
 
 
+def _find_survey_main_sheet(workbook):
+    exact = _sheet_by_clean_name(workbook, SURVEY_MAIN_SHEET)
+    if exact is not None:
+        return exact
+    for sheet in workbook.worksheets:
+        title = _compact_text(sheet.title)
+        first_cell = _compact_text(sheet.cell(1, 1).value)
+        candidate = title + first_cell
+        if "社区基本信息" in candidate and "设施" in candidate and "调研表" in candidate:
+            return sheet
+    return None
+
+
+def _find_survey_population_sheet(workbook):
+    exact = _sheet_by_clean_name(workbook, SURVEY_POPULATION_SHEET_PREFIX, prefix=True)
+    if exact is not None:
+        return exact
+    for sheet in workbook.worksheets:
+        title = _compact_text(sheet.title)
+        rows = list(sheet.iter_rows(min_row=1, max_row=min(sheet.max_row, 20), values_only=True))
+        has_population_header = any(
+            "序号" in {_compact_text(value) for value in row}
+            and any("年龄" in _compact_text(value) for value in row)
+            for row in rows
+        )
+        first_rows = "".join(_compact_text(value) for row in rows for value in row)
+        candidate = title + first_rows
+        if has_population_header and "人口" in candidate and "性别" in candidate and ("出生" in candidate or "年龄" in candidate):
+            return sheet
+    return None
+
+
 def _is_community_survey_workbook(workbook) -> bool:
-    return _sheet_by_clean_name(workbook, SURVEY_MAIN_SHEET) is not None
+    return _find_survey_main_sheet(workbook) is not None
+
+
+def _survey_label_columns(sheet) -> tuple[int, int]:
+    for row in sheet.iter_rows(min_row=1, max_row=min(sheet.max_row, 40)):
+        normalized = [_compact_text(cell.value) for cell in row]
+        if "信息数据" in normalized and "指标值" in normalized:
+            return normalized.index("信息数据") + 1, normalized.index("指标值") + 1
+    return 4, 5
 
 
 def _survey_main_values(sheet) -> dict[str, Any]:
     result: dict[str, Any] = {}
+    label_column, value_column = _survey_label_columns(sheet)
     for row in sheet.iter_rows(values_only=True):
-        if len(row) >= 5:
-            label = clean_text(row[3])
-            if label and row[4] not in (None, ""):
-                result[label] = row[4]
+        label = clean_text(row[label_column - 1] if len(row) >= label_column else None)
+        value = row[value_column - 1] if len(row) >= value_column else None
+        if label and value not in (None, ""):
+            result[label] = value
     return result
 
 
 def _survey_section_values(sheet, section_prefix: str) -> dict[str, Any]:
-    start = next((row for row in range(1, sheet.max_row + 1) if clean_text(sheet.cell(row, 1).value).startswith(section_prefix)), None)
+    label_column, value_column = _survey_label_columns(sheet)
+    start = next((row for row in range(1, sheet.max_row + 1) if any(_compact_text(cell.value).startswith(section_prefix) for cell in sheet[row])), None)
     if start is None:
         return {}
     result: dict[str, Any] = {}
     for row_number in range(start + 1, sheet.max_row + 1):
-        heading = clean_text(sheet.cell(row_number, 1).value)
-        if heading and re.match(r"^\d+\.\d+\s*", heading):
+        heading = next((_compact_text(cell.value) for cell in sheet[row_number] if re.match(r"^\d+\.\d+", _compact_text(cell.value))), "")
+        if heading:
             break
-        label = clean_text(sheet.cell(row_number, 4).value)
-        value = sheet.cell(row_number, 5).value
+        label = clean_text(sheet.cell(row_number, label_column).value)
+        value = sheet.cell(row_number, value_column).value
         if label and value not in (None, ""):
             result[label] = value
     return result
@@ -338,32 +439,76 @@ def _survey_number(values: dict[str, Any], label_fragment: str, default: float =
         return default
 
 
-def _survey_population_records(sheet) -> tuple[list[dict[str, Any]], int, int]:
+def _survey_coordinate(value: Any, limit: float) -> float | None:
+    if value in (None, "", "/"):
+        return None
+    if isinstance(value, (int, float)):
+        number = float(value)
+    else:
+        text = clean_text(value).upper().replace(",", "")
+        match = re.search(r"[-+]?\d+(?:\.\d+)?", text)
+        if not match:
+            return None
+        number = float(match.group())
+        if ("W" in text or "西" in text or "S" in text or "南" in text) and number > 0:
+            number = -number
+    return number if math.isfinite(number) and -limit <= number <= limit else None
+
+
+def _survey_population_records(sheet, base_year: int) -> tuple[list[dict[str, Any]], int, int]:
     records: list[dict[str, Any]] = []
     missing_age = 0
     unknown_gender = 0
-    for row in sheet.iter_rows(min_row=3, values_only=True):
-        sequence = row[0] if row else None
-        if not isinstance(sequence, (int, float)) or not float(sequence).is_integer():
-            continue
-        age_value = row[3] if len(row) > 3 else None
+    header_row = None
+    columns: dict[str, int] = {}
+    for row_number, row in enumerate(sheet.iter_rows(min_row=1, max_row=min(sheet.max_row, 20), values_only=True), 1):
+        values = [_compact_text(value) for value in row]
+        if any(value == "序号" for value in values) and any("年龄" in value for value in values):
+            header_row = row_number
+            for index, value in enumerate(values):
+                if value == "序号": columns["sequence"] = index
+                elif "性别" in value and "结构" not in value: columns["gender"] = index
+                elif "出生" in value: columns["birth"] = index
+                elif "年龄" in value and "年龄段" not in value: columns["age"] = index
+            break
+    if header_row is None or "sequence" not in columns:
+        return records, 0, 0
+    for row in sheet.iter_rows(min_row=header_row + 1, values_only=True):
+        sequence = row[columns["sequence"]] if len(row) > columns["sequence"] else None
         try:
-            age = int(age_value)
-            if float(age_value) != age or not 0 <= age <= 120:
+            sequence_number = int(sequence)
+            if float(sequence) != sequence_number:
+                raise ValueError
+        except (TypeError, ValueError):
+            continue
+        age_value = row[columns["age"]] if "age" in columns and len(row) > columns["age"] else None
+        birth_value = row[columns["birth"]] if "birth" in columns and len(row) > columns["birth"] else None
+        try:
+            if age_value not in (None, ""):
+                age = int(age_value)
+                if float(age_value) != age:
+                    raise ValueError
+            else:
+                birth_year = int(birth_value)
+                if float(birth_value) != birth_year:
+                    raise ValueError
+                age = base_year - birth_year
+            if not 0 <= age <= MAX_AGE:
                 raise ValueError
         except (TypeError, ValueError):
             missing_age += 1
             continue
-        gender = clean_text(row[1] if len(row) > 1 else None)
+        gender = clean_text(row[columns["gender"]] if "gender" in columns and len(row) > columns["gender"] else None)
+        gender = "男" if gender.startswith("男") else "女" if gender.startswith("女") else gender
         if gender not in ("男", "女"):
             unknown_gender += 1
             gender = "未知"
-        records.append({"序号": int(sequence), "性别": gender or "未知", "年龄": age})
+        records.append({"序号": sequence_number, "性别": gender or "未知", "出生年份": base_year - age, "年龄": age})
     return records, missing_age, unknown_gender
 
 
-def _survey_population_summary(main: dict[str, Any]) -> dict[str, int]:
-    """Convert the survey's broad age bands to the system's forecast bands."""
+def _survey_population_summary(main: dict[str, Any], population_sheet=None) -> dict[str, int]:
+    """Expand the survey's original broad bands into reusable single-age counts."""
     source = {
         "0-6岁": int(_survey_number(main, "0-6岁", 0)),
         "7-12岁": int(_survey_number(main, "7-12岁", 0)),
@@ -374,24 +519,29 @@ def _survey_population_summary(main: dict[str, Any]) -> dict[str, int]:
         "70-79岁": int(_survey_number(main, "70-79岁", 0)),
         "80岁以上": int(_survey_number(main, "80岁以上", 0)),
     }
+    if population_sheet is not None:
+        count_column = None
+        for row in population_sheet.iter_rows(min_row=1, max_row=min(population_sheet.max_row, 12), values_only=True):
+            for index, value in enumerate(row):
+                if _compact_text(value) == "人数":
+                    count_column = index
+                    break
+            if count_column is not None:
+                break
+        for row in population_sheet.iter_rows(values_only=True):
+            values = list(row)
+            for index, value in enumerate(values):
+                label = _compact_text(value)
+                for group in tuple(source):
+                    if label.startswith(_compact_text(group)):
+                        candidate = values[count_column] if count_column is not None and len(values) > count_column else None
+                        if isinstance(candidate, (int, float)) and math.isfinite(float(candidate)):
+                            source[group] = int(candidate)
+                        break
     if not sum(source.values()):
         return {}
 
-    # The source combines ages 0—6 while the forecast model separates 0—3
-    # and 4—6. Allocate proportionally by single-year width and preserve the
-    # source total exactly.
-    zero_to_six = source["0-6岁"]
-    zero_to_three = round(zero_to_six * 4 / 7)
-    return {
-        "0-3岁": zero_to_three,
-        "4-6岁": zero_to_six - zero_to_three,
-        "7-12岁": source["7-12岁"],
-        "13-17岁": source["13-17岁"],
-        "18-59岁": source["18-35岁"] + source["36-59岁"],
-        "60-69岁": source["60-69岁"],
-        "70-79岁": source["70-79岁"],
-        "80岁以上": source["80岁以上"],
-    }
+    return distribute_age_bands_uniformly(source)
 
 
 def _survey_chargers(workbook) -> list[dict[str, Any]]:
@@ -404,7 +554,11 @@ def _survey_chargers(workbook) -> list[dict[str, Any]]:
             continue
         identifier = clean_text(row[0] if row else None)
         if identifier:
-            result.append({"机动车充电桩编号": identifier, "经度": row[2] if len(row) > 2 else None, "纬度": row[3] if len(row) > 3 else None})
+            result.append({
+                "机动车充电桩编号": identifier,
+                "经度": _survey_coordinate(row[2] if len(row) > 2 else None, 180),
+                "纬度": _survey_coordinate(row[3] if len(row) > 3 else None, 90),
+            })
     return result
 
 
@@ -427,8 +581,8 @@ def _survey_activity_areas(workbook) -> tuple[float, float]:
 
 
 def _parse_community_survey_workbook(workbook) -> dict[str, Any]:
-    main_sheet = _sheet_by_clean_name(workbook, SURVEY_MAIN_SHEET)
-    population_sheet = _sheet_by_clean_name(workbook, SURVEY_POPULATION_SHEET_PREFIX, prefix=True)
+    main_sheet = _find_survey_main_sheet(workbook)
+    population_sheet = _find_survey_population_sheet(workbook)
     if main_sheet is None or population_sheet is None:
         raise ValueError("综合调研表缺少社区主表或社区人口明细表")
     main = _survey_main_values(main_sheet)
@@ -437,15 +591,24 @@ def _parse_community_survey_workbook(workbook) -> dict[str, Any]:
     if not code or not name:
         raise ValueError("综合调研表缺少社区编号或社区名称")
 
-    records, missing_age, unknown_gender = _survey_population_records(population_sheet)
+    date_text = clean_text(main_sheet.cell(3, 1).value)
+    year_match = re.search(r"(19|20)\d{2}", date_text)
+    population_base_year = int(year_match.group()) if year_match else 2026
+    records, missing_age, unknown_gender = _survey_population_records(population_sheet, population_base_year)
     age_counts: dict[str, int] = {}
     used_summary = False
+    used_total_only = False
     if records:
         total_population = len(records)
+        age_counts = {str(age): count for age, count in sorted(Counter(int(row["年龄"]) for row in records).items())}
     else:
-        age_counts = _survey_population_summary(main)
+        age_counts = _survey_population_summary(main, population_sheet)
+        stated_population = int(_survey_number(main, "常住人口数量", 0))
         if not age_counts:
-            raise ValueError("综合调研表没有可用的居民年龄明细或年龄段汇总")
+            if stated_population <= 0:
+                raise ValueError("综合调研表没有可用的居民年龄明细、年龄段汇总或常住人口总数")
+            age_counts = distribute_age_bands_uniformly({"0-100岁": stated_population})
+            used_total_only = True
         total_population = sum(age_counts.values())
         used_summary = True
         # Empty numbered template rows are not resident records.
@@ -453,9 +616,9 @@ def _parse_community_survey_workbook(workbook) -> dict[str, Any]:
         unknown_gender = 0
     stated_population = int(_survey_number(main, "常住人口数量", 0))
     households = int(_survey_number(main, "社区总户数", 0)) or round(total_population / 2.5)
-    date_text = clean_text(main_sheet.cell(3, 1).value)
-    year_match = re.search(r"(19|20)\d{2}", date_text)
-    population_base_year = int(year_match.group()) if year_match else 2026
+
+    if used_summary:
+        records = simulate_population_records(age_counts, population_base_year)
 
     meal = _survey_section_values(main_sheet, "2.3")
     elderly = _survey_section_values(main_sheet, "1.4")
@@ -468,13 +631,17 @@ def _parse_community_survey_workbook(workbook) -> dict[str, Any]:
         "原表未提供分年龄段净迁入率，已按0‰导入，可在预测前按当地数据调整。",
         "原表没有社区闲置空间清单，设施预测可以执行，但选址建议会提示补充候选空间。",
     ]
-    warnings = ["已识别为综合调研表，并自动转换为系统社区数据格式。"]
+    warnings: list[str] = []
     if used_summary:
-        message = "人口分表未填写逐人明细，已读取主表年龄段汇总；0—6岁按年龄跨度拆分为0—3岁和4—6岁，汇总人口总数保持不变。"
+        message = (
+            "调研表未提供逐人明细或年龄段汇总，已按常住人口总数在0—100岁间均匀生成非实名模拟人口；"
+            if used_total_only else
+            "人口分表未填写逐人明细，已按原始年龄段内的单岁均匀分布生成非实名模拟人口；"
+        ) + "性别比按女性100、男性105.07生成，出生年份由人口基准年与年龄计算。"
         notes.append(message)
-        warnings.append(message)
     if stated_population and stated_population != total_population:
-        message = f"主表常住人口为{stated_population}人，人口明细中有{total_population}条有效年龄记录；本次以可核验的人口明细为准。"
+        source_label = "年龄段汇总" if used_summary else "人口明细"
+        message = f"主表常住人口为{stated_population}人，{source_label}合计{total_population}人；本次以可核验的{source_label}为准。"
         notes.append(message)
         warnings.append(message)
     if missing_age:
@@ -518,7 +685,7 @@ def validate_community_workbook(path: Path) -> list[dict[str, Any]]:
         issues.append({"sheet": sheet, "row": row, "field": field, "value": value, "message": message})
 
     try:
-        workbook = load_workbook(path, data_only=True, read_only=True)
+        workbook = _load_workbook(path, data_only=True, read_only=True)
     except Exception as exc:
         return [{"sheet": None, "row": None, "field": "文件", "value": None, "message": f"无法读取 Excel：{exc}"}]
 
@@ -574,7 +741,7 @@ def validate_community_workbook(path: Path) -> list[dict[str, Any]]:
                     add_issue("社区基本信息", row_number, field, value, message)
 
             for group in AGE_GROUPS:
-                fields = [f"社区{group}常住人口年均净迁入率（{unit}）" for unit in ("‰", "%")]
+                fields = _migration_rate_fields(group)
                 present = [field for field in fields if field in base_rows and base_rows[field][0] not in (None, "")]
                 if len(present) > 1:
                     add_issue("社区基本信息", None, group, None, "同一年龄段不能同时填写百分率和千分率，请保留一项")
@@ -603,11 +770,11 @@ def validate_community_workbook(path: Path) -> list[dict[str, Any]]:
                     age_value = row[age_index] if age_index < len(row) else None
                     try:
                         age = float(age_value)
-                        if not age.is_integer() or not 0 <= age <= 120:
+                        if not age.is_integer() or not 0 <= age <= MAX_AGE:
                             raise ValueError
                         population_count += 1
                     except (TypeError, ValueError):
-                        add_issue("社区人口列表", row_number, "年龄", age_value, "应为 0 至 120 的整数")
+                        add_issue("社区人口列表", row_number, "年龄", age_value, f"应为 0 至 {MAX_AGE} 的整数")
                 if population_count == 0:
                     try:
                         if not sum(_read_age_summary(workbook).values()):
@@ -621,7 +788,7 @@ def validate_community_workbook(path: Path) -> list[dict[str, Any]]:
 
 
 def parse_community(path: Path) -> dict[str, Any]:
-    workbook = load_workbook(path, data_only=True, read_only=True)
+    workbook = _load_workbook(path, data_only=True, read_only=True)
     if _is_community_survey_workbook(workbook):
         try:
             return _parse_community_survey_workbook(workbook)
@@ -638,17 +805,28 @@ def parse_community(path: Path) -> dict[str, Any]:
     migration_rates = dict(DEFAULT_MIGRATION_RATES)
     converted_legacy_rates = False
     from .rate_units import percent_to_permille
+    migration_sources: dict[str, str] = {}
+    source_by_field: dict[str, str] = {}
+    base_sheet = workbook["社区基本信息"]
+    for row in base_sheet.iter_rows(min_row=2, values_only=True):
+        field = clean_text(row[0] if row else None)
+        if field:
+            source_by_field[field] = clean_text(row[2] if len(row) > 2 else None)
     for group in AGE_GROUPS:
-        key = f"社区{group}常住人口年均净迁入率（‰）"
-        legacy_key = f"社区{group}常住人口年均净迁入率（%）"
-        current, legacy = base.get(key), base.get(legacy_key)
-        if current not in (None, "") and legacy not in (None, ""):
+        fields = _migration_rate_fields(group)
+        present = [field for field in fields if base.get(field) not in (None, "")]
+        if len(present) > 1:
             raise ValueError(f"{group}净迁入率单位冲突，请只保留千分率或百分率一项")
-        if current not in (None, ""):
-            migration_rates[group] = float(current)
-        elif legacy not in (None, ""):
-            migration_rates[group] = percent_to_permille(legacy)
-            converted_legacy_rates = True
+        if present:
+            field = present[0]
+            value = base[field]
+            if "（%）" in field:
+                migration_rates[group] = percent_to_permille(value)
+                converted_legacy_rates = True
+            else:
+                migration_rates[group] = float(value)
+            if source_by_field.get(field):
+                migration_sources[group] = source_by_field[field]
 
     facilities: dict[str, Any] = {}
     if "填写说明" in workbook.sheetnames:
@@ -657,6 +835,8 @@ def parse_community(path: Path) -> dict[str, Any]:
             facilities["_dataNotes"] = notes
     if converted_legacy_rates:
         facilities.setdefault("_dataNotes", []).append("导入旧版Excel：表头标注%的净迁入率已乘10等价换算为‰；原始上传文件保留。")
+    if migration_sources:
+        facilities["_migrationRateSources"] = migration_sources
     for sheet_name in ("助餐设施", "养老设施", "托育设施", "停车充电设施", "公共活动场地"):
         if sheet_name in workbook.sheetnames:
             facilities[sheet_name] = _key_value_sheet(workbook, sheet_name)
@@ -695,6 +875,10 @@ def parse_community(path: Path) -> dict[str, Any]:
         if gender not in ("男", "女", "未知", ""):
             row["原始性别"] = row.get("性别")
         row["性别"] = gender if gender in ("男", "女") else "未知"
+        age = population_base_year - int(row["出生年份"]) if row.get("出生年份") not in (None, "") else int(row.get("年龄") or 0)
+        age = max(0, min(MAX_AGE, age))
+        row["年龄"] = age
+        row["出生年份"] = population_base_year - age
     total_population = sum(age_counts.values())
     average_household_size = float(base.get("预测户均人数（人）") or 2.5)
     households = int(base["总户数"]) if base.get("总户数") not in (None, "") else round(total_population / average_household_size)
@@ -845,20 +1029,23 @@ def export_community_template(path, base_year: int = 2026, community=None) -> No
     instructions.title = "填写说明"
     instructions.append(["项目", "说明"])
     instructions.append(["数据范围", "已保存社区数据；未保存的界面修改不包含在本文件中。" if populated else "空白录入模板；请填写社区与人口数据，不能直接用空表预测。"])
-    instructions.append(["人口数据", "出生年份+年龄=人口数据基准年。人口明细按保存值导出，未知性别不虚构。"])
+    simulated_population = any("非实名模拟人口" in str(note) for note in facilities.get("_dataNotes", []))
+    population_note = "出生年份+年龄=人口数据基准年。社区人口列表为按原表年龄段、最高100岁及女性100:男性105.07生成的非实名模拟记录。" if simulated_population else "出生年份+年龄=人口数据基准年。人口明细按保存值导出，未知性别不虚构。"
+    instructions.append(["人口数据", population_note])
     instructions.append(["比率单位", "净迁入率使用千分率（‰），输入普通数值：10表示10‰，不要将单元格设为百分比格式；出生率和死亡率也使用‰。旧版标注%的净迁入率导入时乘10换算。"])
     instructions.append(["设施与空间", "空值表示尚未填写，0表示已确认没有；坐标保留原始值，模拟值仅供演示。"])
-    instructions.append(["重导入", "相同社区编号会更新社区；请先备份。原始年龄汇总单独保留，不伪造居民明细。"])
+    instructions.append(["重导入", "相同社区编号会更新社区；请先备份。仅有年龄段汇总时，系统会按段内均匀分布生成非实名人口记录。"])
     for note in facilities.get("_dataNotes", []):
         instructions.append(["案例来源", str(note)])
 
     base = workbook.create_sheet("社区基本信息")
-    base.append(["参数项", "参数"])
+    base.append(["参数项", "参数", "参考来源"])
     for label, key, default in [("社区编号", "code", ""), ("社区名称", "name", ""), ("预测参数参考地区", "region", "全国"), ("总户数", "households", 0), ("预测户均人数（人）", "average_household_size", 2.5)]:
-        base.append([label, get(key, default)])
-    base.append(["人口数据基准年", base_year])
+        base.append([label, get(key, default), ""])
+    base.append(["人口数据基准年", base_year, ""])
+    migration_sources = facilities.get("_migrationRateSources", {})
     for group in AGE_GROUPS:
-        base.append([f"社区{group}常住人口年均净迁入率（‰）", get("migration_rates", {}).get(group, 0)])
+        base.append([f"社区{group}常住人口复合年均净迁入率（‰）", get("migration_rates", {}).get(group, 0), migration_sources.get(group, "")])
 
     def write_rows(name, columns, records):
         sheet = workbook.create_sheet(name)
@@ -950,9 +1137,11 @@ def export_population_parameters(path: Path, data: dict[str, Any]) -> None:
         birth.append([year, *[birth_rates.get(region, {}).get(str(year)) for region in regions]])
 
     death = workbook.create_sheet("死亡率")
-    death.append(["年份", *[f"{group}死亡率（‰）" for group in MORTALITY_GROUPS]])
-    for year, values in sorted(data.get("deathRates", {}).items(), key=lambda item: int(item[0])):
-        death.append([int(year), *[values.get(group) for group in MORTALITY_GROUPS]])
+    death_rates = data.get("deathRates", {})
+    death_groups = next((list(values) for values in death_rates.values() if values), list(MORTALITY_GROUPS))
+    death.append(["年份", *[f"{group}死亡率（‰）" for group in death_groups]])
+    for year, values in sorted(death_rates.items(), key=lambda item: int(item[0])):
+        death.append([int(year), *[values.get(group) for group in death_groups]])
     _style_template(workbook)
     path.parent.mkdir(parents=True, exist_ok=True)
     workbook.save(path)

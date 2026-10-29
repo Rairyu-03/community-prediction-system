@@ -444,12 +444,23 @@ async def import_community_file(
             failed_count=1,
             issues=[{"field": "文件结构", "message": str(exc)}],
         )
+    community_by_code = db.scalar(
+        select(Community).where(Community.project_id == project_id, Community.code == data["code"])
+    )
+    community_by_name = db.scalar(
+        select(Community).where(Community.project_id == project_id, Community.name == data["name"])
+    )
+    if community_by_code and community_by_name and community_by_code.id != community_by_name.id:
+        temp_target.unlink(missing_ok=True)
+        return CommunityImportReport(
+            filename=safe_filename,
+            failed_count=1,
+            issues=[{"field": "社区编号/名称", "message": "社区编号和名称分别对应两个已有社区，请修改后重新导入"}],
+        )
+    community = community_by_code or community_by_name
     final_target = Path(project.path) / "input" / f"{data['code']}-{data['name']}.xlsx"
     if final_target != temp_target:
         temp_target.replace(final_target)
-    community = db.scalar(
-        select(Community).where(Community.project_id == project_id, Community.code == data["code"])
-    )
     is_update = community is not None
     if is_update:
         for key, value in data.items():
@@ -467,7 +478,63 @@ async def import_community_file(
         updated_count=1 if is_update else 0,
         warnings=[*import_warnings, *[f"人口序号{row.get('序号')}性别原值“{row['原始性别']}”无效，暂记为未知；原值保留，请在社区人口列表核实。" for row in data.get("population_records", []) if "原始性别" in row]],
         community=community,
+        community_code=community.code,
+        community_name=community.name,
     )
+
+
+@app.post(f"{settings.api_prefix}/projects/{{project_id}}/communities/import/preview", response_model=CommunityImportReport)
+async def preview_community_file(
+    project_id: int,
+    file: Annotated[UploadFile, File()],
+    _: ApiAuth,
+    db: DbSession,
+) -> CommunityImportReport:
+    """Validate an upload without changing the project or retaining the file."""
+    project = get_project_or_404(db, project_id)
+    if not file.filename or not file.filename.lower().endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="只支持 .xlsx 社区文件")
+    safe_filename = Path(file.filename).name
+    temp_target = Path(project.path) / "input" / f".preview_community_{uuid4().hex}.xlsx"
+    try:
+        with temp_target.open("wb") as output:
+            shutil.copyfileobj(file.file, output)
+        issues = validate_community_workbook(temp_target)
+        if issues:
+            return CommunityImportReport(filename=safe_filename, failed_count=1, issues=issues)
+        data = parse_community(temp_target)
+        warnings = data.pop("_import_warnings", [])
+        data = CommunityCreate.model_validate(data).model_dump()
+        existing_by_code = db.scalar(
+            select(Community).where(Community.project_id == project_id, Community.code == data["code"])
+        )
+        existing_by_name = db.scalar(
+            select(Community).where(Community.project_id == project_id, Community.name == data["name"])
+        )
+        if existing_by_code and existing_by_name and existing_by_code.id != existing_by_name.id:
+            return CommunityImportReport(
+                filename=safe_filename,
+                failed_count=1,
+                issues=[{"field": "社区编号/名称", "message": "社区编号和名称分别对应两个已有社区，请修改后重新导入"}],
+            )
+        existing = existing_by_code or existing_by_name
+        return CommunityImportReport(
+            filename=safe_filename,
+            success_count=1,
+            created_count=0 if existing else 1,
+            updated_count=1 if existing else 0,
+            warnings=warnings,
+            community_code=data["code"],
+            community_name=data["name"],
+        )
+    except Exception as exc:
+        return CommunityImportReport(
+            filename=safe_filename,
+            failed_count=1,
+            issues=[{"field": "文件结构", "message": str(exc)}],
+        )
+    finally:
+        temp_target.unlink(missing_ok=True)
 
 
 @app.get(f"{settings.api_prefix}/projects/{{project_id}}/dashboard", response_model=DashboardRead)

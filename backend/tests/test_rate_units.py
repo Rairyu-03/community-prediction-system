@@ -41,11 +41,16 @@ def test_legacy_database_conversion_is_idempotent_and_preserves_history():
 
 def test_excel_new_roundtrip_legacy_conversion_and_conflict(tmp_path):
     path = tmp_path/"community.xlsx"
-    payload = {"code":"RATE", "name":"单位社区", "age_counts":{"30":1000}, "migration_rates":dict.fromkeys(AGE_GROUPS,12)}
+    sources = dict.fromkeys(AGE_GROUPS, "统计年鉴测算")
+    payload = {"code":"RATE", "name":"单位社区", "age_counts":{"30":1000}, "migration_rates":dict.fromkeys(AGE_GROUPS,12), "facilities":{"_migrationRateSources": sources}}
     export_community_template(path,2026,payload)
-    assert parse_community(path)["migration_rates"] == payload["migration_rates"]
+    parsed = parse_community(path)
+    assert parsed["migration_rates"] == payload["migration_rates"]
+    assert parsed["facilities"]["_migrationRateSources"] == sources
     wb=load_workbook(path)
+    assert [wb["社区基本信息"].cell(1,column).value for column in range(1,4)] == ["参数项","参数","参考来源"]
     for row in range(8,16):
+        assert "复合年均净迁入率" in wb["社区基本信息"].cell(row,1).value
         assert "‰" in wb["社区基本信息"].cell(row,1).value
         wb["社区基本信息"].cell(row,1).value=wb["社区基本信息"].cell(row,1).value.replace("‰","%")
         wb["社区基本信息"].cell(row,2).value=1.2
@@ -117,5 +122,23 @@ def test_three_rates_divide_by_1000_and_historical_explanation():
                 assert '历史批次口径' in historical['notes'][1]
             bad=deepcopy(params);bad['birthRateUnit']='%'
             assert client.put(root+'/parameters/population',json={'data':bad}).status_code==422
+        finally:
+            client.delete(root)
+
+
+def test_community_import_preview_does_not_write_data(tmp_path):
+    path = tmp_path / "preview.xlsx"
+    export_community_template(path, 2026, {"code":"PREVIEW", "name":"预览社区", "age_counts":{"30":20}})
+    with TestClient(app) as client:
+        project = client.post("/api/projects", json={"name":"预览导入-"+uuid4().hex}).json()
+        root = f"/api/projects/{project['id']}"
+        try:
+            with path.open("rb") as stream:
+                response = client.post(root + "/communities/import/preview", files={"file": (path.name, stream, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+            assert response.status_code == 200
+            report = response.json()
+            assert report["success_count"] == 1
+            assert report["community_code"] == "PREVIEW"
+            assert client.get(root + "/communities").json() == []
         finally:
             client.delete(root)

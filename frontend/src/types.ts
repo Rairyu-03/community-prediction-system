@@ -44,6 +44,8 @@ export type CommunityImportReport = {
   issues: CommunityImportIssue[];
   warnings?: string[];
   community?: Community;
+  community_code?: string;
+  community_name?: string;
 };
 
 export type ParameterSet = {

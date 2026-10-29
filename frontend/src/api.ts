@@ -157,6 +157,15 @@ export class CommunityApi {
     });
   }
 
+  previewCommunityImport(projectId: number, file: File) {
+    const form = new FormData();
+    form.append("file", file);
+    return this.request<CommunityImportReport>(`/projects/${projectId}/communities/import/preview`, {
+      method: "POST",
+      body: form,
+    });
+  }
+
   communityTemplateUrl(projectId: number, communityId?: number, blank = false) {
     const query = new URLSearchParams();
     if (this.token) query.set("access_token", this.token);

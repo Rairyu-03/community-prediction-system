@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { forecastYears, orderedYears, validRate, fillMissingPopulationYears, MORTALITY_GROUPS } from "./forecastParameters";
+import { forecastYears, orderedYears, validRate, fillMissingPopulationYears, mortalityGroups } from "./forecastParameters";
 import type { ParameterSet } from "./types";
 import { downloadFile } from "./api";
 
@@ -129,6 +129,7 @@ export function PopulationParameterForm({ value, templateHref, onSave, onImport,
   const targetYears = forecastYears(draft.startYear, draft.duration);
   const birthYears = orderedYears(targetYears, regions.flatMap(region=>Object.keys(birthRates[region])), showOther);
   const deathRates = (draft.deathRates || {}) as Record<string, Data>;
+  const deathGroups = mortalityGroups(deathRates);
   const deathYears = orderedYears(targetYears, Object.keys(deathRates), showOther);
   const pendingUniform = draft._pendingUniformDeath as Data | undefined;
   const uniformValues = pendingUniform || deathRates[deathYear] || {};
@@ -137,15 +138,15 @@ export function PopulationParameterForm({ value, templateHref, onSave, onImport,
   if (!value) return <div className="loading-block"><span className="spinner" />正在加载人口预测参数</div>;
   const notes = (draft.sourceNotes || {}) as Data;
   const missingBirth = targetYears.reduce((n, year)=>n+regions.filter(region=>!validRate(birthRates[region]?.[year])).length, 0);
-  const missingDeath = targetYears.reduce((n, year)=>n+MORTALITY_GROUPS.filter(group=>!validRate(deathRates[year]?.[group])).length, 0);
+  const missingDeath = targetYears.reduce((n, year)=>n+deathGroups.filter(group=>!validRate(deathRates[year]?.[group])).length, 0);
   const applyUniform = () => {
-    if (!targetYears.length || MORTALITY_GROUPS.some(group=>!validRate(uniformValues[group]))) {
-      setMessage("请填写完整的21组死亡率（0—1000‰），并设置有效预测范围。"); return;
+    if (!targetYears.length || deathGroups.some(group=>!validRate(uniformValues[group]))) {
+      setMessage(`请填写完整的${deathGroups.length}组死亡率（0—1000‰），并设置有效预测范围。`); return;
     }
     setConfirmation({message:`将当前这组死亡率应用到 ${targetYears[0]}—${targetYears.at(-1)} 年？会覆盖这些年度原有的分龄死亡率，其他年度保留。应用后还需保存参数。`, apply:()=>{
     const next = clone(draft);
     const rates = (next.deathRates || {}) as Record<string, Data>;
-    for (const year of targetYears) rates[year] = Object.fromEntries(MORTALITY_GROUPS.map(group=>[group,uniformValues[group]]));
+    for (const year of targetYears) rates[year] = Object.fromEntries(deathGroups.map(group=>[group,uniformValues[group]]));
     next.deathRates = rates;
     delete next._pendingUniformDeath;
     const note = `用户确认统一死亡率：${targetYears[0]}—${targetYears.at(-1)}年使用同一组分龄死亡率。`;
@@ -179,7 +180,7 @@ export function PopulationParameterForm({ value, templateHref, onSave, onImport,
       预测范围内待补充：出生率 {missingBirth} 项、死亡率 {missingDeath} 项。{!regions.length && "暂无地区出生率，请导入参数。"}
       <button className="secondary-button" disabled={!targetYears.length || Boolean(pendingUniform)} onClick={()=>{
         setConfirmation({message:"仅补充当前预测年度的缺失项：出生率沿用同地区、死亡率沿用同年龄段最近已填年份的数值。现有有效值（含0）不变；这是一项假设，不是自动获取的真实数据。确认补齐？",apply:()=>{
-        setDraft(fillMissingPopulationYears(draft,targetYears,MORTALITY_GROUPS));
+        setDraft(fillMissingPopulationYears(draft,targetYears,deathGroups));
         setMessage("已按最近年度补齐可用项并记录来源；无参考值的项目仍需手动填写。请核对后保存。");
         }});
       }}>沿用最近年度补齐缺失项</button>
@@ -203,7 +204,7 @@ export function PopulationParameterForm({ value, templateHref, onSave, onImport,
       {deathMode==="yearly" ? <label>当前参数年份<select value={deathYear} onChange={e=>setDeathYear(e.target.value)}>{deathYears.map(year=><option key={year} value={year}>{year}年{!targetYears.includes(year) ? "（参考）" : ""}</option>)}</select></label>
         : <><span>以 {deathYear || "当前"} 年为初始参考，填写一组后确认应用。</span><button className="secondary-button" onClick={applyUniform}>确认应用到预测年度</button></>}
       <span>单位：‰</span></div>
-      <div className="parameter-table-wrap"><table className="parameter-table"><thead><tr><th>年龄段</th><th>死亡率（‰）</th></tr></thead><tbody>{MORTALITY_GROUPS.map(group=><tr key={group}><td>{group}</td><td><NumberInput label={deathMode==="uniform" ? `统一${group}死亡率` : `${deathYear}${group}死亡率`} value={deathMode==="uniform" ? uniformValues[group] : deathRates[deathYear]?.[group]} onChange={next=>{
+      <div className="parameter-table-wrap"><table className="parameter-table"><thead><tr><th>年龄段</th><th>死亡率（‰）</th></tr></thead><tbody>{deathGroups.map(group=><tr key={group}><td>{group}</td><td><NumberInput label={deathMode==="uniform" ? `统一${group}死亡率` : `${deathYear}${group}死亡率`} value={deathMode==="uniform" ? uniformValues[group] : deathRates[deathYear]?.[group]} onChange={next=>{
         if (deathMode==="uniform") setDraft({...draft,_pendingUniformDeath:{...uniformValues,[group]:next}});
         else setDraft(writePath(draft,`deathRates.${deathYear}.${group}`,next));
       }}/></td></tr>)}</tbody></table></div>

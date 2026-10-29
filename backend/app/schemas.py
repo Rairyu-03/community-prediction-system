@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, field_serializer, model_validator
 from .defaults import AGE_GROUPS
+from .services.age_distribution import MAX_AGE
 from .services.validation_service import finite_number
 
 
@@ -90,12 +91,12 @@ class CommunityCreate(ApiModel):
                 raise ValueError(f"人口列表第{index}行性别无效")
             birth = row.get("出生年份")
             if birth not in (None, ""):
-                year = finite_number(birth, f"第{index}行出生年份", self.population_base_year - 120, self.population_base_year)
+                year = finite_number(birth, f"第{index}行出生年份", self.population_base_year - MAX_AGE, self.population_base_year)
                 if not year.is_integer():
                     raise ValueError("出生年份必须为整数")
                 age = self.population_base_year - int(year)
             else:
-                age = finite_number(row.get("年龄"), f"第{index}行年龄", 0, 120)
+                age = finite_number(row.get("年龄"), f"第{index}行年龄", 0, MAX_AGE)
                 if not float(age).is_integer():
                     raise ValueError("年龄必须为整数")
                 age = int(age)
@@ -119,7 +120,7 @@ class CommunityCreate(ApiModel):
         if numeric and any(numeric) and not all(numeric):
             raise ValueError("不能混合单岁年龄和年龄段人口")
         for key, count in values.items():
-            if key not in AGE_GROUPS and not (key.isdigit() and 0 <= int(key) <= 120):
+            if key not in AGE_GROUPS and not (key.isdigit() and 0 <= int(key) <= MAX_AGE):
                 raise ValueError(f"未知年龄或年龄段：{key}")
             if count < 0:
                 raise ValueError(f"{key}人口不能为负数")
@@ -208,6 +209,8 @@ class CommunityImportReport(BaseModel):
     issues: list[CommunityImportIssue] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     community: CommunityRead | None = None
+    community_code: str | None = None
+    community_name: str | None = None
 
 
 class PredictionRequest(BaseModel):

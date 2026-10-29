@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
-from ..defaults import AGE_GROUPS, MORTALITY_GROUPS, REQUIRED_FACILITY_PATHS
+from ..defaults import AGE_GROUPS, REQUIRED_FACILITY_PATHS
+from .age_distribution import validate_age_band_partition
 from ..models import Community, ParameterSet, PredictionRun, Project
 
 
@@ -45,8 +46,12 @@ def inspect_project_quality(db, project: Project, kind: str):
             missing=[y for y in years if series.get(y) in (None,"")]
             if missing: add("error","BIRTH_MISSING",f"{c.region}缺少出生率：{','.join(missing)}年","population")
         for year in years:
-            missing=[g for g in MORTALITY_GROUPS if deaths.get(year,{}).get(g) in (None,"")]
-            if missing: add("error","DEATH_MISSING",f"{year}年缺少{len(missing)}组死亡率","population")
+            values=deaths.get(year,{})
+            missing=[g for g,v in values.items() if v in (None,"")]
+            if not values or missing: add("error","DEATH_MISSING",f"{year}年死亡率不完整","population")
+            else:
+                try: validate_age_band_partition(values,field=f"{year}年死亡率年龄段")
+                except ValueError as exc: add("error","DEATH_AGE_BANDS",str(exc),"population")
     if kind=="facility":
         facility=params.get("facility",{})
         missing=[path for path in REQUIRED_FACILITY_PATHS if _get(facility,path) in (None,"")]

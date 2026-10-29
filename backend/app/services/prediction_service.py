@@ -11,10 +11,11 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..defaults import AGE_GROUPS, MORTALITY_GROUPS
+from ..defaults import AGE_GROUPS
 from ..models import Community, ParameterSet, PredictionResult, PredictionRun, Project
 from .excel_service import export_facility_results, export_population_results
 from .validation_service import finite_number, validate_parameters
+from .age_distribution import MAX_AGE, parse_age_band, validate_age_band_partition
 
 
 def round_half_up(value: float) -> int:
@@ -29,17 +30,17 @@ def group_for_age(age: int, groups: dict[str, tuple[int, int]]) -> str:
 
 
 def normalize_age_counts(raw: dict[str, int]) -> list[int]:
-    counts = [0] * 121
+    counts = [0] * (MAX_AGE + 1)
     if all(str(key).isdigit() for key in raw):
         for key, value in raw.items():
-            counts[max(0, min(120, int(key)))] += max(0, int(value))
+            counts[max(0, min(MAX_AGE, int(key)))] += max(0, int(value))
         return counts
 
     for group_name, value in raw.items():
         if group_name not in AGE_GROUPS:
             continue
         minimum, maximum = AGE_GROUPS[group_name]
-        maximum = min(120, maximum)
+        maximum = min(MAX_AGE, maximum)
         total = max(0, int(value))
         width = maximum - minimum + 1
         base, remainder = divmod(total, width)
@@ -49,7 +50,7 @@ def normalize_age_counts(raw: dict[str, int]) -> list[int]:
 
 
 def distribute_change(counts: list[int], minimum: int, maximum: int, change: int, rng: random.Random) -> None:
-    ages = list(range(minimum, min(120, maximum) + 1))
+    ages = list(range(minimum, min(MAX_AGE, maximum) + 1))
     if not ages or change == 0:
         return
     if change > 0:
@@ -67,7 +68,7 @@ def distribute_change(counts: list[int], minimum: int, maximum: int, change: int
 
 def summarize_population(year: int, counts: list[int], average_household_size: float) -> dict[str, Any]:
     age_groups = {
-        name: sum(counts[minimum : min(120, maximum) + 1])
+        name: sum(counts[minimum : min(MAX_AGE, maximum) + 1])
         for name, (minimum, maximum) in AGE_GROUPS.items()
     }
     total = sum(counts)
@@ -81,14 +82,14 @@ def summarize_population(year: int, counts: list[int], average_household_size: f
 
 
 def advance_population(counts: list[int], births: int, death_rates: dict[str, float], rng: random.Random) -> list[int]:
-    """Deaths use year-t cohorts; retain the open-ended 120+ bucket when ageing."""
+    """Deaths use year-t cohorts; retain age 100 as the terminal bucket."""
     survivors = counts.copy()
     for group, rate in death_rates.items():
-        minimum, maximum = MORTALITY_GROUPS[group]
-        population = sum(counts[minimum:min(maximum, 120) + 1])
+        minimum, maximum = parse_age_band(group)
+        population = sum(counts[minimum:min(maximum, MAX_AGE) + 1])
         distribute_change(survivors, minimum, maximum, -round_half_up(population * rate / 1000), rng)
-    aged = [births] + survivors[:120]
-    aged[120] += survivors[120]
+    aged = [births] + survivors[:MAX_AGE]
+    aged[MAX_AGE] += survivors[MAX_AGE]
     return aged
 
 
@@ -105,9 +106,7 @@ def _death_rates(parameters: dict, year: int) -> dict[str, float]:
     values = parameters.get("deathRates", {}).get(str(year))
     if not values:
         raise ValueError(f"缺少 {year} 年死亡率")
-    missing = [group for group in MORTALITY_GROUPS if group not in values]
-    if missing:
-        raise ValueError(f"{year} 年死亡率缺少年龄段：{', '.join(missing)}")
+    validate_age_band_partition(values, field=f"{year}年死亡率年龄段")
     return {key: float(value) for key, value in values.items()}
 
 
@@ -151,13 +150,17 @@ def run_population_prediction(db: Session, project: Project, seed: int) -> Predi
                 birth_rate = _birth_rate(parameters.data, community.region, year)
                 births = round_half_up(previous_total * birth_rate / 1000)
                 death_rates = _death_rates(parameters.data, year)
-                death_details = [{"年龄段": group, "上一年人数": sum(counts[lo:min(hi,120)+1]), "死亡率（‰）": death_rates[group], "死亡人数": round_half_up(sum(counts[lo:min(hi,120)+1])*death_rates[group]/1000)} for group, (lo, hi) in MORTALITY_GROUPS.items()]
+                death_details = []
+                for group, rate in death_rates.items():
+                    lo, hi = parse_age_band(group)
+                    group_population = sum(counts[lo : hi + 1])
+                    death_details.append({"年龄段": group, "上一年人数": group_population, "死亡率（‰）": rate, "死亡人数": round_half_up(group_population * rate / 1000)})
                 counts = advance_population(counts, births, death_rates, rng)
                 migration_details = []
 
                 for group, (minimum, maximum) in AGE_GROUPS.items():
                     rate = float(community.migration_rates.get(group, 0))
-                    group_population = sum(counts[minimum : min(maximum, 120) + 1])
+                    group_population = sum(counts[minimum : min(maximum, MAX_AGE) + 1])
                     finite_number(rate, f"{group}净迁入率（‰）", -1000, 1000)
                     migration = round_half_up(group_population * rate / 1000)
                     distribute_change(counts, minimum, maximum, migration, rng)
